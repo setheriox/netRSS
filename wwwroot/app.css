@@ -11,11 +11,17 @@
     --tab-active: #0078af; 
     --modal-z-index: 10000;
 }
-
+html {
+    font-size: 9pt;
+}
+.components-reconnect-dialog {
+    background-color: var(--dark-bg);
+    color: var(--dark-text);
+}
 body {
     background-color: var(--dark-bg);
     color: var(--dark-text);
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: 'Courier New', Courier, monospace;
     overflow: hidden;
 }
 
@@ -155,14 +161,14 @@ h1:focus {
 .modal-header h3 {
     margin: 0;
     color: var(--dark-text);
-    font-size: 18px;
+    font-size: 10pt;
 }
 
 .modal-close-button {
     background: none;
     border: none;
     color: var(--dark-text);
-    font-size: 24px;
+    font-size: 10pt;
     cursor: pointer;
     padding: 0;
     line-height: 1;
@@ -207,7 +213,7 @@ h1:focus {
     border: 2px solid var(--dark-border);
     border-radius: 6px;
     color: var(--dark-text);
-    font-size: 14px;
+    font-size: 10pt;
     transition: border-color 0.2s;
 }
 
@@ -219,7 +225,7 @@ h1:focus {
 .validation-error {
     color: #e74c3c;
     margin-top: 8px;
-    font-size: 13px;
+    font-size: 10pt;
     padding: 8px 10px;
     background-color: rgba(231, 76, 60, 0.1);
     border-radius: 4px;
@@ -228,7 +234,7 @@ h1:focus {
 
 /* Error UI styling */
 #blazor-error-ui {
-    background-color: var(--dark-accent);
+    background-color: #b32121;
     color: white;
     bottom: 0;
     box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
@@ -252,4 +258,55 @@ h1:focus {
     font-weight: bold;
     margin-left: 1rem;
     text-decoration: underline;
+}
+
+.feed-sidebar-view-controls {
+    margin: 1rem 0;
+    display: flex;
+    gap: 1rem;
+    flex-direction: column;
+}
+
+.btn-view-starred {
+    background-color: var(--dark-bg);
+    color: var(--dark-text);
+    border: 2px solid var(--dark-accent);
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s ease-in-out;
+    width: 100%;
+    text-align: left;
+}
+
+.btn-view-starred:hover {
+    background-color: var(--dark-accent);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.btn-view-starred.active {
+    background-color: var(--dark-accent);
+    color: white;
+}
+
+.btn-toggle-star {
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 10pt;
+    padding: 0.2rem;
+    transition: all 0.2s ease-in-out;
+}
+
+.btn-toggle-star:hover {
+    color: #ffd700;
+    transform: scale(1.1);
+}
+
+.btn-toggle-star.starred {
+    color: #ffd700;
 }

@@ -21,6 +21,7 @@
     private string FilterTitle = "All Entries";
     private string FilterColor = "";
     private bool ShowUnreadOnly = false;
+    private bool ShowStarredOnly = false;
     
     // Change from HashSet to single integer to track only one expanded entry
     private int? ExpandedEntryId = null;
@@ -94,6 +95,13 @@
         StateHasChanged();
     }
 
+    public void SetStarredFilter(bool showStarredOnly) {
+        ShowStarredOnly = showStarredOnly;
+        FilterTitle = showStarredOnly ? "Starred Entries" : "All Entries";
+        LoadEntries();
+        StateHasChanged();
+    }
+
     private string SanitizeDescription(string? description) {
         if (string.IsNullOrEmpty(description)) return "";
         
@@ -120,7 +128,8 @@
                             JOIN feeds f ON e.feed_id = f.id 
                             LEFT JOIN categories c ON f.category_id = c.id
                             WHERE e.feed_id = @FeedId AND e.filtered = 0
-                            " + (ShowUnreadOnly ? "AND e.read = 0" : "") + @"
+                            " + (ShowUnreadOnly ? "AND e.read = 0" : "") + 
+                            (ShowStarredOnly ? "AND e.starred = 1" : "") + @"
                             ORDER BY e.published DESC 
                             LIMIT 100";
                     param = new { FeedId = SelectedFeed.id };
@@ -132,7 +141,8 @@
                             JOIN feeds f ON e.feed_id = f.id 
                             LEFT JOIN categories c ON f.category_id = c.id
                             WHERE f.category_id = @CategoryId AND e.filtered = 0
-                            " + (ShowUnreadOnly ? "AND e.read = 0" : "") + @"
+                            " + (ShowUnreadOnly ? "AND e.read = 0" : "") + 
+                            (ShowStarredOnly ? "AND e.starred = 1" : "") + @"
                             ORDER BY e.published DESC 
                             LIMIT 100";
                     param = new { CategoryId = SelectedCategory.id };
@@ -144,7 +154,8 @@
                             JOIN feeds f ON e.feed_id = f.id 
                             LEFT JOIN categories c ON f.category_id = c.id
                             WHERE e.filtered = 0
-                            " + (ShowUnreadOnly ? "AND e.read = 0" : "") + @"
+                            " + (ShowUnreadOnly ? "AND e.read = 0" : "") + 
+                            (ShowStarredOnly ? "AND e.starred = 1" : "") + @"
                             ORDER BY e.published DESC 
                             LIMIT 100";
                     Console.WriteLine("SQL no filter (all entries)");
@@ -184,6 +195,25 @@
         }
         catch (Exception ex) {
             Console.WriteLine($"Error toggling read status: {ex.Message}");
+        }
+        StateHasChanged();
+    }
+
+    private void ToggleStarred(Entry entry) {
+        try {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            using (var connection = new SqliteConnection(connectionString)) {
+                connection.Open();
+                string sql = "UPDATE entries SET starred = @starred WHERE id = @id";
+                int newStarredStatus = entry.starred == 1 ? 0 : 1;
+                connection.Execute(sql, new { starred = newStarredStatus, id = entry.id });
+                entry.starred = newStarredStatus;
+                Console.WriteLine($"Toggled starred status for entry {entry.id} to {newStarredStatus}");
+            }
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"Error toggling starred status: {ex.Message}");
         }
         StateHasChanged();
     }
@@ -307,6 +337,9 @@
                             <span>&#9675;</span>
                         }
                     </button>
+                    <button class="btn-toggle-star @(entry.starred == 1 ? "starred" : "")" @onclick="() => ToggleStarred(entry)">
+                        <span>★</span>
+                    </button>
                 </div>
                 <div class="rss-entry-feed-name" style="background-color: @entry.feed_color">
                     <span class="feed-name-text">@entry.feed_name</span>
@@ -360,6 +393,7 @@
             </div>
         </div>
         <button class="modal-nav-btn next" @onclick:stopPropagation="true" @onclick="() => NavigateEntry(true)">→</button>
-    </div>
+    </div> 
+    
 }
 *@

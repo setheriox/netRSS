@@ -17,7 +17,10 @@ CREATE TABLE entries (
     description TEXT,
     link TEXT,
     published DATETIME NOT NULL,
-    feed_id INTEGER NOT NULL, read INTEGER DEFAULT 0, filtered INTEGER DEFAULT 0,
+    feed_id INTEGER NOT NULL, 
+    read INTEGER DEFAULT 0, 
+    filtered INTEGER DEFAULT 0,
+    starred INTEGER DEFAULT 0,
     FOREIGN KEY (feed_id) REFERENCES feeds (id)
 );
 CREATE TABLE filters (

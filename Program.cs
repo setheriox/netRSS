@@ -94,6 +94,7 @@ void EnsureDatabaseExists(string dbPath)
                 feed_id INTEGER NOT NULL, 
                 read INTEGER DEFAULT 0,
                 filtered INTEGER DEFAULT 0,
+                starred INTEGER DEFAULT 0,
                 FOREIGN KEY (feed_id) REFERENCES feeds (id)
             );
 
@@ -110,6 +111,24 @@ void EnsureDatabaseExists(string dbPath)
                 FOREIGN KEY (entry_id) REFERENCES entries (id) ON DELETE CASCADE
             );
         ");
+    }
+    else
+    {
+        // Check if starred column exists in entries table
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+
+        try
+        {
+            // Try to select the starred column - this will fail if it doesn't exist
+            connection.ExecuteScalar<int>("SELECT starred FROM entries LIMIT 1");
+        }
+        catch (Exception)
+        {
+            // If the query fails, the column doesn't exist, so add it
+            connection.Execute("ALTER TABLE entries ADD COLUMN starred INTEGER DEFAULT 0");
+            Console.WriteLine("Added starred column to entries table");
+        }
     }
 }
 

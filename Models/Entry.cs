@@ -11,6 +11,7 @@ public class Entry
     public DateTime published { get; set; }
     public int feed_id { get; set; }
     public int read { get; set; } = 0;
+    public int starred { get; set; } = 0;
     
     [JsonIgnore]
     public Feed? Feed { get; set; }

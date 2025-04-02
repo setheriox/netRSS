@@ -11,7 +11,7 @@
     color: var(--dark-primary);
     margin-bottom: 1rem;
     font-weight: bold;
-    font-size: 1.2rem;
+    font-size: 10pt;
 }
 
 .feed-sidebar-content {
@@ -58,7 +58,7 @@
 
 .feed-sidebar-category-feeds-total {
     color: var(--dark-secondary-text, #aaa);
-    font-size: 0.8rem;
+    font-size: 10pt;
     min-width: 2rem;
     text-align: right;
     grid-column: 2;
@@ -67,7 +67,7 @@
 .feed-sidebar-category-feeds-unread {
     color: var(--dark-accent);
     font-weight: bold;
-    font-size: 0.8rem;
+    font-size: 10pt;
     min-width: 2rem;
     text-align: right;
     grid-column: 3;
@@ -98,7 +98,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: 0.8rem;
+    font-size: 10pt;
     color: var(--dark-secondary-text, #aaa);
 }
 
@@ -117,7 +117,7 @@
     color: var(--dark-primary);
     cursor: pointer;
     padding: 0;
-    font-size: 0.9rem;
+    font-size: 10pt;
     transition: transform 0.1s, color 0.2s;
     display: flex;
     align-items: center;

@@ -7,7 +7,7 @@
 <PageTitle>Feeds</PageTitle>
 
 <div class="feeds-page-layout">
-    <FeedSidebar @ref="sidebarComponent" OnCategorySelected="@HandleCategorySelected" OnFeedSelected="@HandleFeedSelected" />
+    <FeedSidebar @ref="sidebarComponent" OnCategorySelected="@HandleCategorySelected" OnFeedSelected="@HandleFeedSelected" OnViewUnread="@HandleViewUnread" OnViewStarred="@HandleViewStarred" />
     <FeedContent @ref="contentComponent" />
 </div>
 
@@ -30,6 +30,24 @@
         if (contentComponent != null)
         {
             contentComponent.FilterByFeed(feed);
+        }
+    }
+
+    private void HandleViewUnread(bool showUnreadOnly)
+    {
+        Console.WriteLine($"Feeds.razor: View Unread toggled: {showUnreadOnly}");
+        if (contentComponent != null)
+        {
+            contentComponent.SetUnreadFilter(showUnreadOnly);
+        }
+    }
+
+    private void HandleViewStarred(bool showStarredOnly)
+    {
+        Console.WriteLine($"Feeds.razor: View Starred toggled: {showStarredOnly}");
+        if (contentComponent != null)
+        {
+            contentComponent.SetStarredFilter(showStarredOnly);
         }
     }
 } 

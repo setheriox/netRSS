@@ -87,7 +87,7 @@
 .settings-general-debug p {
     margin: 0.5rem 0;
     font-family: 'Consolas', monospace;
-    font-size: 0.9rem;
+    font-size: 10pt;
 }
 
 .settings-general-container-log {
@@ -106,7 +106,7 @@
     padding: 0.5rem;
     border-bottom: 1px solid var(--dark-border);
     font-family: 'Consolas', monospace;
-    font-size: 0.9rem;
+    font-size: 10pt;
     animation: fadeIn 0.3s ease-in-out;
 }
 

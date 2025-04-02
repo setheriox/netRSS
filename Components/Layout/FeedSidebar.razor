@@ -17,8 +17,12 @@
     [Parameter]
     public EventCallback<bool> OnViewUnread { get; set; }
     
+    [Parameter]
+    public EventCallback<bool> OnViewStarred { get; set; }
+    
     private List<Category> Categories { get; set; } = new();
     private bool ShowUnreadOnly = false;
+    private bool ShowStarredOnly = false;
 
     protected override void OnInitialized()
     {
@@ -28,7 +32,18 @@
     private void ToggleUnreadView()
     {
         ShowUnreadOnly = !ShowUnreadOnly;
+        ShowStarredOnly = false;
         OnViewUnread.InvokeAsync(ShowUnreadOnly);
+        OnViewStarred.InvokeAsync(false);
+        StateHasChanged();
+    }
+
+    private void ToggleStarredView()
+    {
+        ShowStarredOnly = !ShowStarredOnly;
+        ShowUnreadOnly = false;
+        OnViewUnread.InvokeAsync(false);
+        OnViewStarred.InvokeAsync(ShowStarredOnly);
         StateHasChanged();
     }
     
@@ -182,7 +197,7 @@
 
 <div class="feed-sidebar">
     <div class="feed-sidebar-content">
-        <div class="feed-sidebar-view-unread">
+        <div class="feed-sidebar-view-controls">
             <button class="btn-view-unread @(ShowUnreadOnly ? "active" : "")" @onclick="ToggleUnreadView">
                 Viewing
                 @if (ShowUnreadOnly) {
@@ -191,6 +206,9 @@
                 } else {
                     <span class="unread-count">All</span>
                 }
+            </button>
+            <button class="btn-view-starred @(ShowStarredOnly ? "active" : "")" @onclick="ToggleStarredView">
+                <span>Starred</span>
             </button>
         </div>
         @if (Categories == null || !Categories.Any()) {
@@ -239,3 +257,4 @@
         }
     </div>
 </div>
+

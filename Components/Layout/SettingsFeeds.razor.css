@@ -2,9 +2,10 @@
     padding: 1rem;
     background-color: var(--dark-bg);
     border-radius: 4px;
-    height: 100%;
+    height: calc(100% - 20px);
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 .settings-feeds-header {
@@ -14,12 +15,13 @@
     margin-bottom: 1rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid var(--dark-border);
+    min-height: 40px;
 }
 
 .settings-feeds-header h3 {
     margin: 0;
     color: var(--dark-text);
-    font-size: 1.5rem;
+    font-size: 10pt;
 }
 
 .btn-add {
@@ -34,6 +36,7 @@
     cursor: pointer;
     font-weight: 600;
     transition: all 0.2s ease-in-out;
+    height: 32px;
 }
 
 .btn-add:hover {
@@ -48,7 +51,7 @@
 }
 
 .btn-icon {
-    font-size: 1.2rem;
+    font-size: 10pt;
     font-weight: bold;
 }
 
@@ -75,9 +78,11 @@
 }
 
 .settings-table-container {
-    overflow-x: auto;
+    flex: 1;
+    overflow: auto;
     border-radius: 4px;
     border: 1px solid var(--dark-border);
+    margin-top: 10px;
 }
 
 .settings-table {
@@ -124,7 +129,7 @@
     padding: 0.25rem 0.75rem;
     border-radius: 4px;
     font-weight: 600;
-    font-size: 0.875rem;
+    font-size: 10pt;
     color: black;
     text-align: center;
 }
@@ -208,13 +213,13 @@
 .modal-header h4 {
     margin: 0;
     color: var(--dark-text);
-    font-size: 1.2rem;
+    font-size: 10pt;
 }
 
 .btn-close {
     background: none;
     border: none;
-    font-size: 1.5rem;
+    font-size: 10pt;
     color: var(--dark-text);
     cursor: pointer;
     transition: color 0.2s;
@@ -256,7 +261,7 @@
     border-radius: 4px;
     background-color: var(--dark-bg);
     color: var(--dark-text);
-    font-size: 1rem;
+    font-size: 10pt;
 }
 
 .form-select {
@@ -266,7 +271,7 @@
 .validation-error {
     color: var(--dark-accent);
     margin-top: 0.25rem;
-    font-size: 0.9rem;
+    font-size: 10pt;
 }
 
 .btn-cancel, .btn-save {
