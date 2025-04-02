@@ -1,0 +1,333 @@
+@using Microsoft.AspNetCore.Components
+@using netRSS.Models
+@using System.Data
+@using Dapper
+@using Microsoft.Data.Sqlite
+@using System.IO
+@inject IDbConnectionFactory DbConnectionFactory
+@rendermode InteractiveServer
+
+<div class="settings-feeds-container">
+    <div class="settings-feeds-header">
+        <h3>Feeds</h3>
+        <button class="btn-add" @onclick="() => ShowAddEditModal(null)">
+            <span class="btn-icon">+</span> Add Feed
+        </button>
+    </div>
+
+    @if (IsLoading) {
+        <div class="loading-indicator">Loading feeds...</div>
+    } else if (Feeds.Count == 0) {
+        <div class="empty-state">
+            <p>No feeds found. Click the Add button to create your first feed.</p>
+            @if (!string.IsNullOrEmpty(LoadError)) {
+                <div class="error-message">@LoadError</div>
+            }
+        </div>
+    } else {
+        <div class="settings-table-container">
+            <table class="settings-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>URL</th>
+                        <th>Category</th>
+                        <th>Entries</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var feed in Feeds) {
+                        <tr>
+                            <td>@feed.id</td>
+                            <td>@feed.name</td>
+                            <td class="url-cell">
+                                <div class="url-wrapper" title="@feed.url">@feed.url</div>
+                            </td>
+                            <td>
+                                @if (feed.Category != null) {
+                                    <div class="category-badge" style="background-color: @feed.Category.color">
+                                        @feed.Category.name
+                                    </div>
+                                } else {
+                                    <span class="no-category">None</span>
+                                }
+                            </td>
+                            <td>@feed.TotalCount</td>
+                            <td class="action-buttons">
+                                <button class="btn-edit" @onclick="() => ShowAddEditModal(feed)">Edit</button>
+                                <button class="btn-delete" @onclick="() => ConfirmDelete(feed)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (ShowModal) {
+        <div class="modal-backdrop" @onclick="CloseModal">
+            <div class="modal-container" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h4>@(CurrentFeed == null ? "Add Feed" : "Edit Feed")</h4>
+                    <button class="btn-close" @onclick="CloseModal">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="feedName">Name:</label>
+                        <input type="text" id="feedName" class="form-input" @bind="FeedName" />
+                        @if (!string.IsNullOrEmpty(NameError)) {
+                            <div class="validation-error">@NameError</div>
+                        }
+                    </div>
+                    <div class="form-group">
+                        <label for="feedUrl">URL:</label>
+                        <input type="text" id="feedUrl" class="form-input" @bind="FeedUrl" />
+                        @if (!string.IsNullOrEmpty(UrlError)) {
+                            <div class="validation-error">@UrlError</div>
+                        }
+                    </div>
+                    <div class="form-group">
+                        <label for="feedCategory">Category:</label>
+                        <select id="feedCategory" class="form-select" @bind="SelectedCategoryId">
+                            @foreach (var category in Categories) {
+                                <option value="@category.id">@category.name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancel" @onclick="CloseModal">Cancel</button>
+                    <button class="btn-save" @onclick="SaveFeed">Save</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (ShowDeleteConfirm) {
+        <div class="modal-backdrop" @onclick="CloseDeleteConfirm">
+            <div class="modal-container delete-confirm" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h4>Delete Feed</h4>
+                    <button class="btn-close" @onclick="CloseDeleteConfirm">×</button>
+                </div>
+                <div class="modal-body">
+                    @if (CurrentFeed?.TotalCount > 0) {
+                        <div class="warning-message">
+                            <p>Warning: This feed has @CurrentFeed?.TotalCount entries. Deleting this feed will also delete all its entries.</p>
+                        </div>
+                    }
+                    <p>Are you sure you want to delete the feed "@CurrentFeed?.name"?</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancel" @onclick="CloseDeleteConfirm">Cancel</button>
+                    <button class="btn-delete confirm" @onclick="DeleteFeed">Delete</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Feed> Feeds { get; set; } = new();
+    private List<Category> Categories { get; set; } = new();
+    private bool IsLoading { get; set; } = true;
+    private bool ShowModal { get; set; } = false;
+    private bool ShowDeleteConfirm { get; set; } = false;
+    private Feed? CurrentFeed { get; set; }
+    private string FeedName { get; set; } = string.Empty;
+    private string FeedUrl { get; set; } = string.Empty;
+    private int SelectedCategoryId { get; set; }
+    private string NameError { get; set; } = string.Empty;
+    private string UrlError { get; set; } = string.Empty;
+    private string LoadError { get; set; } = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        LoadFeedsAndCategories();
+    }
+
+    private void LoadFeedsAndCategories()
+    {
+        IsLoading = true;
+        LoadError = string.Empty;
+        Feeds.Clear();
+        Categories.Clear();
+        
+        try
+        {
+            using var connection = DbConnectionFactory.CreateConnection();
+            connection.Open();
+            
+            Console.WriteLine("Database connection opened successfully");
+
+            // Load categories first (for the dropdown)
+            string sqlCategories = "SELECT * FROM categories ORDER BY name";
+            Categories = connection.Query<Category>(sqlCategories).ToList();
+            Console.WriteLine($"Loaded {Categories.Count} categories");
+
+            // Load feeds 
+            string sqlFeeds = "SELECT * FROM feeds ORDER BY name";
+            var feedsList = connection.Query<Feed>(sqlFeeds).ToList();
+            Console.WriteLine($"Loaded {feedsList.Count} feeds");
+            
+            // Get categories for each feed
+            foreach (var feed in feedsList)
+            {
+                string sqlCategory = "SELECT * FROM categories WHERE id = @CategoryId";
+                feed.Category = connection.QueryFirstOrDefault<Category>(sqlCategory, new { CategoryId = feed.category_id });
+                
+                // Get entry count for this feed
+                string sqlEntryCount = "SELECT COUNT(*) FROM entries WHERE feed_id = @FeedId";
+                feed.TotalCount = connection.ExecuteScalar<int>(sqlEntryCount, new { FeedId = feed.id });
+                
+                Feeds.Add(feed);
+            }
+            
+            // Set default category for new feeds
+            if (Categories.Count > 0)
+            {
+                SelectedCategoryId = Categories.First().id;
+            }
+        }
+        catch (Exception ex)
+        {
+            LoadError = $"Error loading feeds: {ex.Message}";
+            Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
+        }
+        
+        IsLoading = false;
+        StateHasChanged();
+    }
+
+    private void ShowAddEditModal(Feed? feed)
+    {
+        CurrentFeed = feed;
+        
+        if (feed != null)
+        {
+            // Edit mode
+            FeedName = feed.name;
+            FeedUrl = feed.url;
+            SelectedCategoryId = feed.category_id;
+        }
+        else
+        {
+            // Add mode
+            FeedName = string.Empty;
+            FeedUrl = string.Empty;
+            // Default to first category if available
+            SelectedCategoryId = Categories.Count > 0 ? Categories.First().id : 0;
+        }
+        
+        NameError = string.Empty;
+        UrlError = string.Empty;
+        ShowModal = true;
+    }
+
+    private void CloseModal()
+    {
+        ShowModal = false;
+        CurrentFeed = null;
+    }
+
+    private void ConfirmDelete(Feed feed)
+    {
+        CurrentFeed = feed;
+        ShowDeleteConfirm = true;
+    }
+
+    private void CloseDeleteConfirm()
+    {
+        ShowDeleteConfirm = false;
+        CurrentFeed = null;
+    }
+
+    private void SaveFeed()
+    {
+        // Validate
+        bool isValid = true;
+        
+        if (string.IsNullOrWhiteSpace(FeedName))
+        {
+            NameError = "Feed name is required";
+            isValid = false;
+        }
+        
+        if (string.IsNullOrWhiteSpace(FeedUrl))
+        {
+            UrlError = "Feed URL is required";
+            isValid = false;
+        }
+        else if (!Uri.TryCreate(FeedUrl, UriKind.Absolute, out _))
+        {
+            UrlError = "Please enter a valid URL";
+            isValid = false;
+        }
+        
+        if (!isValid) return;
+        
+        try
+        {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            using (var connection = new SqliteConnection(connectionString))
+            {
+                connection.Open();
+                
+                if (CurrentFeed == null)
+                {
+                    // Add new feed
+                    string sql = "INSERT INTO feeds (name, url, category_id) VALUES (@Name, @Url, @CategoryId)";
+                    connection.Execute(sql, new { Name = FeedName, Url = FeedUrl, CategoryId = SelectedCategoryId });
+                }
+                else
+                {
+                    // Update existing feed
+                    string sql = "UPDATE feeds SET name = @Name, url = @Url, category_id = @CategoryId WHERE id = @Id";
+                    connection.Execute(sql, new { Id = CurrentFeed.id, Name = FeedName, Url = FeedUrl, CategoryId = SelectedCategoryId });
+                }
+            }
+            
+            // Refresh the list
+            LoadFeedsAndCategories();
+            CloseModal();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving feed: {ex.Message}");
+        }
+    }
+
+    private void DeleteFeed()
+    {
+        if (CurrentFeed == null) return;
+        
+        try
+        {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            using (var connection = new SqliteConnection(connectionString))
+            {
+                connection.Open();
+                
+                // First delete all entries associated with this feed
+                string deleteEntriesSql = "DELETE FROM entries WHERE feed_id = @FeedId";
+                connection.Execute(deleteEntriesSql, new { FeedId = CurrentFeed.id });
+                
+                // Then delete the feed
+                string deleteFeedSql = "DELETE FROM feeds WHERE id = @Id";
+                connection.Execute(deleteFeedSql, new { Id = CurrentFeed.id });
+            }
+            
+            // Refresh the list
+            LoadFeedsAndCategories();
+            CloseDeleteConfirm();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error deleting feed: {ex.Message}");
+        }
+    }
+} 

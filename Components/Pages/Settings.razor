@@ -1,0 +1,65 @@
+@page "/settings"
+@using Microsoft.AspNetCore.Components
+@using netRSS.Components.Layout
+@rendermode InteractiveServer
+
+<PageTitle>Settings</PageTitle>
+
+<div class="settings-page-layout">
+    <div class="settings-tabs">
+        <div class="@(CurrentTab == "general" ? "settings-tab-container-active" : "settings-tab-container")">
+                <NavLink class="tab" href="settings?tab=general" Match="NavLinkMatch.All">
+                    General
+                </NavLink>
+            </div>
+        
+        <div class="@(CurrentTab == "categories" ? "settings-tab-container-active" : "settings-tab-container")">
+        <NavLink class="tab" href="settings?tab=categories">
+            Categories
+        </NavLink>
+        </div>
+        <div class="@(CurrentTab == "feeds" ? "settings-tab-container-active" : "settings-tab-container")">
+        <NavLink class="tab" href="settings?tab=feeds">
+            Feeds
+        </NavLink>
+        </div>
+        <div class="@(CurrentTab == "filters" ? "settings-tab-container-active" : "settings-tab-container")">
+        <NavLink class="tab" href="settings?tab=filters">
+            Filters
+        </NavLink>
+        </div>
+    </div>
+    
+    <div class="settings-content">
+        @switch (CurrentTab) {
+            case "general":
+                <SettingsGeneral />
+                break;
+            case "categories":
+                <SettingsCategories />
+                break;
+            case "feeds":
+                <SettingsFeeds />
+                break;
+            case "filters":
+                <SettingsFilters />
+                break;
+            default:
+                <SettingsGeneral />
+                break;
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Tab { get; set; }
+    
+    private string CurrentTab => Tab?.ToLower() ?? "general";
+    
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+    }
+} 

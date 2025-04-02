@@ -1,0 +1,35 @@
+@page "/feeds"
+@using Microsoft.AspNetCore.Components
+@using netRSS.Components.Layout
+@using netRSS.Models
+@rendermode InteractiveServer
+
+<PageTitle>Feeds</PageTitle>
+
+<div class="feeds-page-layout">
+    <FeedSidebar @ref="sidebarComponent" OnCategorySelected="@HandleCategorySelected" OnFeedSelected="@HandleFeedSelected" />
+    <FeedContent @ref="contentComponent" />
+</div>
+
+@code {
+    private FeedSidebar? sidebarComponent;
+    private FeedContent? contentComponent;
+    
+    private void HandleCategorySelected(Category category)
+    {
+        Console.WriteLine($"Feeds.razor: Category selected: {category.name}");
+        if (contentComponent != null)
+        {
+            contentComponent.FilterByCategory(category);
+        }
+    }
+    
+    private void HandleFeedSelected(Feed feed)
+    {
+        Console.WriteLine($"Feeds.razor: Feed selected: {feed.name}");
+        if (contentComponent != null)
+        {
+            contentComponent.FilterByFeed(feed);
+        }
+    }
+} 

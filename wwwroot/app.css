@@ -1,0 +1,255 @@
+:root {
+    --dark-bg: #1a1a1a;
+    --dark-text: #e0e0e0;
+    --dark-primary: #ffffff;
+    --dark-secondary: #2c2c2c;
+    --dark-accent: #e74c3c;
+    --dark-border: #333;
+    --dark-entry-bg: #222;
+    --dark-secondary-text: #aaa;
+    --tab-hover: #333;
+    --tab-active: #0078af; 
+    --modal-z-index: 10000;
+}
+
+body {
+    background-color: var(--dark-bg);
+    color: var(--dark-text);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: var(--dark-text);
+}
+
+a {
+    color: var(--dark-primary);
+    text-decoration: none;
+}
+
+a:hover {
+    color: var(--dark-accent);
+}
+
+.form-control {
+    background-color: var(--dark-secondary);
+    border-color: var(--dark-border);
+    color: var(--dark-text);
+}
+
+.form-control:focus {
+    background-color: var(--dark-secondary);
+    border-color: var(--dark-primary);
+    color: var(--dark-text);
+}
+
+.btn-primary {
+    background-color: var(--dark-primary);
+    border-color: var(--dark-primary);
+}
+
+.btn-primary:hover {
+    background-color: var(--dark-accent);
+    border-color: var(--dark-accent);
+}
+
+.card {
+    background-color: var(--dark-secondary);
+    border-color: var(--dark-border);
+}
+
+.card-header {
+    background-color: var(--dark-bg);
+    border-bottom-color: var(--dark-border);
+}
+
+.table {
+    color: var(--dark-text);
+}
+
+.table thead th {
+    background-color: var(--dark-secondary);
+    border-color: var(--dark-border);
+}
+
+.table td {
+    border-color: var(--dark-border);
+}
+
+h1:focus {
+    outline: none;
+}
+
+.valid.modified:not([type=checkbox]) {
+    outline: 1px solid #26b050;
+}
+
+.invalid {
+    outline: 1px solid #e50000;
+}
+
+.validation-message {
+    color: #e50000;
+}
+
+.blazor-error-boundary {
+    background: #b32121;
+    padding: 1rem 1rem 1rem 3.7rem;
+    color: white;
+}
+
+    .blazor-error-boundary::after {
+        content: "An error has occurred."
+    }
+
+.darker-border-checkbox.form-check-input {
+    border-color: #929292;
+}
+
+.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
+    color: var(--bs-secondary-color);
+    text-align: end;
+}
+
+.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
+    text-align: start;
+}
+
+/* Modal styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.75);
+    z-index: var(--modal-z-index);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.modal-container {
+    background-color: var(--dark-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    background-color: var(--dark-bg);
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--dark-border);
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: var(--dark-text);
+    font-size: 18px;
+}
+
+.modal-close-button {
+    background: none;
+    border: none;
+    color: var(--dark-text);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-body {
+    padding: 20px;
+    max-height: calc(90vh - 130px);
+}
+
+.modal-footer {
+    background-color: var(--dark-bg);
+    padding: 15px 20px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    border-top: 1px solid var(--dark-border);
+}
+
+.modal-button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.modal-button-cancel {
+    background-color: var(--dark-bg);
+    color: var(--dark-text);
+}
+
+.modal-button-primary {
+    background-color: var(--dark-accent);
+    color: white;
+}
+
+.form-input {
+    width: 100%;
+    padding: 10px 12px;
+    background-color: var(--dark-bg);
+    border: 2px solid var(--dark-border);
+    border-radius: 6px;
+    color: var(--dark-text);
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: var(--dark-accent);
+}
+
+.validation-error {
+    color: #e74c3c;
+    margin-top: 8px;
+    font-size: 13px;
+    padding: 8px 10px;
+    background-color: rgba(231, 76, 60, 0.1);
+    border-radius: 4px;
+    border: 1px solid rgba(231, 76, 60, 0.3);
+}
+
+/* Error UI styling */
+#blazor-error-ui {
+    background-color: var(--dark-accent);
+    color: white;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: 0.75rem;
+    top: 0.5rem;
+}
+
+#blazor-error-ui .reload {
+    color: white;
+    font-weight: bold;
+    margin-left: 1rem;
+    text-decoration: underline;
+}

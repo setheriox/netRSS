@@ -1,0 +1,362 @@
+@using Microsoft.AspNetCore.Components
+@using netRSS.Models
+@using System.Data
+@using Dapper
+@using Microsoft.Data.Sqlite
+@inject IDbConnectionFactory DbConnectionFactory
+@rendermode InteractiveServer
+
+<div class="settings-filters-container">
+    <div class="settings-filters-header">
+        <h3>Content Filters</h3>
+        <button class="btn-add" @onclick="ShowAddModal">
+            <span class="btn-icon">+</span> Add Filter
+        </button>
+    </div>
+
+    @if (IsLoading) {
+        <div class="loading-indicator">Loading filters...</div>
+    } else if (Filters.Count == 0) {
+        <div class="empty-state">
+            <p>No filters found. Click the Add button to create your first filter.</p>
+            @if (!string.IsNullOrEmpty(LoadError)) {
+                <div class="error-message">@LoadError</div>
+            }
+        </div>
+    } else {
+        <div class="settings-table-container">
+            <table class="settings-table">
+                <thead>
+                    <tr>
+                        <th>Filter Term</th>
+                        <th>Filter Type</th>
+<!-- fix this sometime, maybe -->
+                        <th>Matches</th>
+<!-- fix this sometime, maybe -->
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var filter in Filters) {
+                        <tr>
+                            <td>@filter.Term</td>
+                            <td>@filter.FilterType</td>
+                            <td>
+                                <span class="match-count">@filter.MatchCount</span>
+                            </td>
+                            <td class="action-buttons">
+                                <button class="btn-edit" @onclick="() => ShowEditModal(filter)" title="Edit Filter">
+                                    Edit
+                                </button>
+                                <button class="btn-delete" @onclick="() => ShowDeleteModal(filter)" title="Delete Filter">
+                                    Delete
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    
+    @if (FilteredEntries.Count > 0) {
+        <div class="filtered-entries-container">
+            <h3>Filtered Entries (@FilteredEntries.Count)</h3>
+            <div class="filtered-entries-list">
+                @foreach (var entry in FilteredEntries) {
+                    <div class="filtered-entry">
+                        <div class="filtered-entry-header">
+                            <div class="filtered-entry-feed">@entry.feed_name</div>
+                            <div class="filtered-entry-title">@entry.title</div>
+                            <div class="filtered-entry-date">@entry.published.ToString("g")</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@if (_showEditModal) {
+    <div class="modal-overlay" @onclick="CloseEditModal">
+        <div class="modal-container" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>@(_isNewFilter ? "Add Filter" : "Edit Filter")</h3>
+                <button class="modal-close-button" @onclick="CloseEditModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Filter Term:</label>
+                    <input type="text" class="form-input" @bind="_filterTerm" @bind:event="oninput" 
+                           placeholder="Enter filter term (use quotes for exact match)" />
+                    @if (!string.IsNullOrEmpty(_filterError)) {
+                        <div class="validation-error">@_filterError</div>
+                    }
+                </div>
+                <div class="form-group">
+                    <label>Apply Filter To:</label>
+                    <div class="filter-type-options">
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_filterTitle" /> Title
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" @bind="_filterDescription" /> Body
+                        </label>
+                    </div>
+                    @if (!_filterTitle && !_filterDescription) {
+                        <div class="validation-error">Please select at least one option</div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-cancel" @onclick="CloseEditModal">Cancel</button>
+                <button class="modal-button modal-button-primary" @onclick="SaveFilter">Save</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showDeleteModal) {
+    <div class="modal-overlay" @onclick="CloseDeleteModal">
+        <div class="modal-container" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Delete Filter</h3>
+                <button class="modal-close-button" @onclick="CloseDeleteModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete this filter?</p>
+                <div class="filter-preview">
+                    <p><strong>Filter Term:</strong> @_filterToDelete?.Term</p>
+                    <p><strong>Type:</strong> @_filterToDelete?.FilterType</p>
+                    @if (_filterToDelete?.MatchCount > 0) {
+                        <div class="warning-message">
+                            <p>This filter is currently matching @_filterToDelete.MatchCount items.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-cancel" @onclick="CloseDeleteModal">Cancel</button>
+                <button class="modal-button modal-button-primary" @onclick="DeleteFilter">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ContentFilter> Filters { get; set; } = new();
+    private List<Entry> FilteredEntries { get; set; } = new();
+    private bool IsLoading { get; set; } = true;
+    private string LoadError { get; set; } = string.Empty;
+
+    // Edit modal state
+    private bool _showEditModal = false;
+    private bool _isNewFilter = false;
+    private ContentFilter? _currentFilter;
+    private string _filterTerm = string.Empty;
+    private bool _filterTitle = true;
+    private bool _filterDescription = true;
+    private string _filterError = string.Empty;
+
+    // Delete modal state
+    private bool _showDeleteModal = false;
+    private ContentFilter? _filterToDelete;
+
+    protected override void OnInitialized()
+    {
+        LoadFilters();
+        LoadFilteredEntries();
+    }
+
+    private void LoadFilters()
+    {
+        IsLoading = true;
+        LoadError = string.Empty;
+        Filters.Clear();
+        
+        try {
+            using var connection = DbConnectionFactory.CreateConnection();
+            
+            // Load filters with match counts
+            string sql = @"
+                SELECT f.*, 
+                       (SELECT COUNT(*) FROM entries e 
+                        WHERE (f.title = 1 AND e.title LIKE '%' || f.term || '%')
+                           OR (f.description = 1 AND e.description LIKE '%' || f.term || '%')
+                       ) as match_count
+                FROM filters f
+                ORDER BY f.term";
+            
+            Filters = connection.Query<ContentFilter>(sql).ToList();
+        }
+        catch (Exception ex) {
+            LoadError = $"Error loading filters: {ex.Message}";
+            Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
+        }
+        
+        IsLoading = false;
+        StateHasChanged();
+    }
+
+    private void LoadFilteredEntries()
+    {
+        try {
+            using var connection = DbConnectionFactory.CreateConnection();
+            string sql = @"
+                SELECT e.*, f.name as feed_name, f.url as feed_url, c.color as feed_color
+                FROM entries e
+                JOIN feeds f ON e.feed_id = f.id
+                JOIN categories c ON f.category_id = c.id
+                WHERE e.filtered = 1
+                ORDER BY e.published DESC";
+            
+            FilteredEntries = connection.Query<Entry>(sql).ToList();
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"ERROR loading filtered entries: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        try {
+            using var connection = DbConnectionFactory.CreateConnection();
+            
+            // First reset all entries
+            string resetSql = "UPDATE entries SET filtered = 0";
+            connection.Execute(resetSql);
+            
+            // Then apply all filters
+            string applySql = @"
+                UPDATE entries
+                SET filtered = 1
+                WHERE EXISTS (
+                    SELECT 1 FROM filters f
+                    WHERE (f.title = 1 AND entries.title LIKE '%' || f.term || '%')
+                       OR (f.description = 1 AND entries.description LIKE '%' || f.term || '%')
+                )";
+            
+            int affectedRows = connection.Execute(applySql);
+            Console.WriteLine($"Applied filters: {affectedRows} entries marked as filtered");
+            
+            // Reload filtered entries
+            LoadFilteredEntries();
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"ERROR applying filters: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
+    private void ShowAddModal()
+    {
+        _isNewFilter = true;
+        _currentFilter = null;
+        _filterTerm = string.Empty;
+        _filterTitle = true;
+        _filterDescription = true;
+        _filterError = string.Empty;
+        _showEditModal = true;
+    }
+
+    private void ShowEditModal(ContentFilter filter)
+    {
+        _isNewFilter = false;
+        _currentFilter = filter;
+        _filterTerm = filter.Term;
+        _filterTitle = filter.Title;
+        _filterDescription = filter.Description;
+        _filterError = string.Empty;
+        _showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        _showEditModal = false;
+    }
+
+    private void SaveFilter()
+    {
+        _filterError = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_filterTerm)) {
+            _filterError = "Filter term cannot be empty";
+            return;
+        }
+
+        if (!_filterTitle && !_filterDescription) {
+            _filterError = "Please select at least one filter type";
+            return;
+        }
+
+        try {
+            using var connection = DbConnectionFactory.CreateConnection();
+            
+            if (_isNewFilter) {
+                string sql = @"INSERT INTO filters (term, title, description) 
+                             VALUES (@Term, @Title, @Description)";
+                connection.Execute(sql, new { 
+                    Term = _filterTerm, 
+                    Title = _filterTitle ? 1 : 0, 
+                    Description = _filterDescription ? 1 : 0 
+                });
+                Console.WriteLine($"Added new filter: {_filterTerm} (Title: {_filterTitle}, Body: {_filterDescription})");
+            }
+            else if (_currentFilter != null) {
+                string sql = @"UPDATE filters 
+                             SET term = @Term, title = @Title, description = @Description 
+                             WHERE id = @Id";
+                connection.Execute(sql, new { 
+                    Term = _filterTerm, 
+                    Title = _filterTitle ? 1 : 0, 
+                    Description = _filterDescription ? 1 : 0,
+                    Id = _currentFilter.Id 
+                });
+                Console.WriteLine($"Updated filter: {_filterTerm} (Title: {_filterTitle}, Body: {_filterDescription})");
+            }
+
+            // Apply filters to entries
+            ApplyFilters();
+            
+            LoadFilters();
+            _showEditModal = false;
+        }
+        catch (Exception ex) {
+            _filterError = $"Error saving filter: {ex.Message}";
+            Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
+    private void ShowDeleteModal(ContentFilter filter)
+    {
+        _filterToDelete = filter;
+        _showDeleteModal = true;
+    }
+
+    private void CloseDeleteModal()
+    {
+        _showDeleteModal = false;
+        _filterToDelete = null;
+    }
+
+    private void DeleteFilter()
+    {
+        if (_filterToDelete == null) return;
+        
+        try {
+            using var connection = DbConnectionFactory.CreateConnection();
+            string sql = "DELETE FROM filters WHERE id = @Id";
+            connection.Execute(sql, new { Id = _filterToDelete.Id });
+            
+            // Reapply all filters after deletion
+            ApplyFilters();
+            
+            LoadFilters();
+            _showDeleteModal = false;
+            _filterToDelete = null;
+        }
+        catch (Exception ex) {
+            LoadError = $"Error deleting filter: {ex.Message}";
+            Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+} 

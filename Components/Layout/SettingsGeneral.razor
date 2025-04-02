@@ -1,0 +1,235 @@
+@using Microsoft.AspNetCore.Components
+@using System.ServiceModel.Syndication
+@using System.Xml
+@using System.Net.Http
+@using netRSS.Models
+@using Dapper
+@using Microsoft.Data.Sqlite
+@using System.Diagnostics
+@inject IHttpClientFactory HttpClientFactory
+@inject IDbConnectionFactory DbConnectionFactory
+@rendermode InteractiveServer
+
+<div class="settings-general-container">
+    <h3>General Settings</h3>
+    
+    <div class="settings-general-refresh">
+        <button class="btn-refresh" @onclick="RefreshFeeds" disabled="@isRefreshing">
+            @if (isRefreshing) {
+                <span>Refreshing...</span>
+            } else {
+                <span>Refresh All Feeds</span>
+            }
+        </button>
+        
+        <button class="btn-test" @onclick="TestButton">
+            Test Button
+        </button>
+    </div>
+
+    <div class="settings-general-debug">
+        <h4>Debug Info</h4>
+        <p>Click count: @clickCount</p>
+        <p>Last clicked: @(lastClicked.HasValue ? lastClicked.Value.ToString("HH:mm:ss") : "Never")</p>
+        <p>Is refreshing: @isRefreshing</p>
+        <p>Log count: @refreshLogs.Count</p>
+    </div>
+
+    <div class="settings-general-container-log">
+        @if (refreshLogs.Count == 0) {
+            <div class="log-entry info">
+                <span class="log-message">No logs yet. Click refresh to start.</span>
+            </div>
+        }
+        @foreach (var log in refreshLogs) {
+            <div class="log-entry @log.type">
+                <span class="log-time">@log.time.ToString("HH:mm:ss")</span>
+                <span class="log-message">@log.message</span>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool isRefreshing = false;
+    private int clickCount = 0;
+    private DateTime? lastClicked;
+    private List<(string message, string type, DateTime time)> refreshLogs = new();
+
+    protected override void OnInitialized() {
+        AddLog("Component initialized", "info");
+    }
+    
+    private void TestButton() {
+        clickCount++;
+        lastClicked = DateTime.Now;
+        StateHasChanged();
+    }
+
+    private async Task RefreshFeeds() {
+        if (isRefreshing) return;
+        
+        isRefreshing = true;
+        clickCount++;
+        lastClicked = DateTime.Now;
+        refreshLogs.Clear();
+        StateHasChanged();
+        
+        try {
+            AddLog($"Creating HttpClient and DB connection", "info");
+            
+            using var httpClient = HttpClientFactory.CreateClient();
+            // Add browser-like headers to avoid 403 errors
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            httpClient.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            httpClient.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.5");
+            
+            using var connection = DbConnectionFactory.CreateConnection();
+            connection.Open();
+            
+            AddLog("Querying database for feeds", "info");
+            var feeds = connection.Query<Feed>("SELECT * FROM feeds").ToList();
+            AddLog($"Found {feeds.Count} feeds to refresh", "info");
+
+            var stopwatch = Stopwatch.StartNew();
+            foreach (var feed in feeds) {
+                try {
+                    AddLog($"Fetching feed: {feed.name} ({feed.url})", "info");
+                    
+                    // Add retry logic for failed requests
+                    HttpResponseMessage response = null;
+                    string content = null;
+                    int maxRetries = 3;
+                    int currentTry = 0;
+                    
+                    while (currentTry < maxRetries) {
+                        try {
+                            response = await httpClient.GetAsync(feed.url);
+                            if (response.IsSuccessStatusCode) {
+                                content = await response.Content.ReadAsStringAsync();
+                                break;
+                            }
+                            currentTry++;
+                            if (currentTry < maxRetries) {
+                                await Task.Delay(1000 * currentTry); // Exponential backoff
+                            }
+                        }
+                        catch (Exception ex) {
+                            currentTry++;
+                            if (currentTry >= maxRetries) throw;
+                            await Task.Delay(1000 * currentTry);
+                        }
+                    }
+                    
+                    if (content == null) {
+                        throw new Exception($"Failed to fetch feed after {maxRetries} attempts. Status: {response?.StatusCode}");
+                    }
+                    
+                    AddLog($"Downloaded {content.Length} bytes from {feed.url}", "info");
+                    
+                    var xmlDoc = new XmlDocument();
+                    xmlDoc.LoadXml(content);
+
+                    // Check if this is an RDF feed
+                    var isRdf = xmlDoc.DocumentElement?.NamespaceURI == "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+                    
+                    if (isRdf) {
+                        // Handle RDF feed
+                        AddLog($"Detected RDF feed format for {feed.name}", "info");
+                        var nsmgr = new XmlNamespaceManager(xmlDoc.NameTable);
+                        nsmgr.AddNamespace("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#");
+                        nsmgr.AddNamespace("rss", "http://purl.org/rss/1.0/");
+                        nsmgr.AddNamespace("dc", "http://purl.org/dc/elements/1.1/");
+                        
+                        var items = xmlDoc.SelectNodes("//rss:item", nsmgr);
+                        if (items != null) {
+                            AddLog($"Found {items.Count} items in RDF feed", "info");
+                            foreach (XmlNode item in items) {
+                                var title = item.SelectSingleNode("rss:title", nsmgr)?.InnerText ?? "";
+                                var description = item.SelectSingleNode("rss:description", nsmgr)?.InnerText;
+                                var link = item.SelectSingleNode("rss:link", nsmgr)?.InnerText;
+                                var dateStr = item.SelectSingleNode("dc:date", nsmgr)?.InnerText;
+                                
+                                DateTime published;
+                                if (!DateTime.TryParse(dateStr, out published)) {
+                                    published = DateTime.Now;
+                                }
+
+                                // Check if entry already exists
+                                var existingEntry = connection.QueryFirstOrDefault<Entry>(
+                                    "SELECT * FROM entries WHERE link = @Link AND feed_id = @FeedId",
+                                    new { Link = link, FeedId = feed.id }
+                                );
+
+                                if (existingEntry == null) {
+                                    // Insert new entry
+                                    connection.Execute(@"
+                                        INSERT INTO entries (title, description, link, published, feed_id, read)
+                                        VALUES (@Title, @Description, @Link, @Published, @FeedId, 0)",
+                                        new {
+                                            Title = title,
+                                            Description = description,
+                                            Link = link,
+                                            Published = published,
+                                            FeedId = feed.id
+                                        }
+                                    );
+                                    AddLog($"Added new entry: {title}", "success");
+                                }
+                            }
+                        }
+                    } else {
+                        // Handle regular RSS/Atom feed
+                        var reader = XmlReader.Create(new StringReader(content));
+                        var syndicationFeed = SyndicationFeed.Load(reader);
+                        AddLog($"Parsed feed: {feed.name} with {syndicationFeed.Items.Count()} items", "info");
+
+                        foreach (var item in syndicationFeed.Items) {
+                            // Check if entry already exists
+                            var existingEntry = connection.QueryFirstOrDefault<Entry>(
+                                "SELECT * FROM entries WHERE link = @Link AND feed_id = @FeedId",
+                                new { Link = item.Links.FirstOrDefault()?.Uri.ToString(), FeedId = feed.id }
+                            );
+
+                            if (existingEntry == null) {
+                                // Insert new entry
+                                connection.Execute(@"
+                                    INSERT INTO entries (title, description, link, published, feed_id, read)
+                                    VALUES (@Title, @Description, @Link, @Published, @FeedId, 0)",
+                                    new {
+                                        Title = item.Title.Text,
+                                        Description = item.Summary?.Text,
+                                        Link = item.Links.FirstOrDefault()?.Uri.ToString(),
+                                        Published = item.PublishDate.DateTime,
+                                        FeedId = feed.id
+                                    }
+                                );
+                                AddLog($"Added new entry: {item.Title.Text}", "success");
+                            }
+                        }
+                    }
+
+                    AddLog($"Successfully processed feed: {feed.name}", "success");
+                }
+                catch (Exception ex) {
+                    AddLog($"Error processing feed {feed.name}: {ex.Message}", "error");
+                }
+            }
+            stopwatch.Stop();
+            AddLog($"Feed refresh completed in {stopwatch.ElapsedMilliseconds}ms", "info");
+        }
+        catch (Exception ex) {
+            AddLog($"Error during refresh: {ex.Message}", "error");
+            AddLog($"Stack trace: {ex.StackTrace}", "error");
+        }
+        finally {
+            isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void AddLog(string message, string type) {
+        refreshLogs.Insert(0, (message, type, DateTime.Now));
+        StateHasChanged();
+    }
+} 

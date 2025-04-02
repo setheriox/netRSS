@@ -1,0 +1,30 @@
+nav {
+    display: flex;
+    gap: 1rem;
+}
+
+.nav-item {
+    background-color: var(--dark-secondary);
+    color: var(--dark-text);
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--dark-border);
+    transition: all 0.2s ease;
+}
+
+.nav-item:hover {
+    background-color: var(--tab-hover);
+}
+
+.nav-item:active {
+    transform: translateY(1px);
+}
+
+.nav-link {
+    color: var(--dark-text);
+    text-decoration: none;
+}
+
+.nav-link:hover {
+    color: var(--dark-primary);
+}

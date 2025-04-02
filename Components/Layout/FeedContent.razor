@@ -1,0 +1,354 @@
+@using netRSS.Models
+@using System.Data
+@using System
+@using Dapper
+@using Microsoft.Data.Sqlite
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using System.Text.RegularExpressions
+@using System.IO
+@inject IJSRuntime JSRuntime
+@rendermode InteractiveServer
+
+@code {
+    [Parameter]
+    public EventCallback<Feed> OnFeedSelected { get; set; } 
+    
+    private List<Entry> Entries = new();
+    private Feed? SelectedFeed;
+    private Category? SelectedCategory;
+    private string FilterTitle = "All Entries";
+    private string FilterColor = "";
+    
+    // Change from HashSet to single integer to track only one expanded entry
+    private int? ExpandedEntryId = null;
+    
+    // Alternative modal state implementation
+    /*
+    private Entry? SelectedEntry;
+    private bool IsModalOpen = false;
+    private int CurrentEntryIndex = 0;
+    */
+
+    protected override void OnInitialized() {
+        LoadEntries();
+    }
+
+    // Alternative modal state implementation
+    /*
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (IsModalOpen) {
+            try {
+                await JSRuntime.InvokeVoidAsync("addModalKeyboardListener", DotNetObjectReference.Create(this));
+            }
+            catch (Exception ex) {
+                Console.WriteLine($"Error setting up keyboard listener: {ex.Message}");
+            }
+        }
+    }
+
+    [JSInvokable]
+    public void HandleKeyPress(string key) {
+        if (!IsModalOpen || SelectedEntry == null) return;
+        
+        switch (key) {
+            case "ArrowLeft":
+                NavigateEntry(false);
+                break;
+            case "ArrowRight":
+                NavigateEntry(true);
+                break;
+            case "Escape":
+                CloseModal();
+                break;
+        }
+    }
+    */
+
+    public void FilterByFeed(Feed feed) {
+        Console.WriteLine($"Filtering by feed: {feed.name} (ID: {feed.id})");
+        SelectedFeed = feed;
+        SelectedCategory = null;
+        FilterTitle = feed.name;
+        FilterColor = "";
+        LoadEntries();
+        StateHasChanged();
+    }
+
+    public void FilterByCategory(Category category) {
+        Console.WriteLine($"Filtering by category: {category.name} (ID: {category.id})");
+        SelectedCategory = category;
+        SelectedFeed = null;
+        FilterTitle = category.name;
+        FilterColor = category.color;
+        LoadEntries();
+        StateHasChanged();
+    }
+
+    private string SanitizeDescription(string? description) {
+        if (string.IsNullOrEmpty(description)) return "";
+        
+        // Remove iframes using regex
+        description = Regex.Replace(description, @"<iframe[^>]*>.*?</iframe>", "", RegexOptions.Singleline);
+        description = Regex.Replace(description, @"<iframe[^>]*/>", "", RegexOptions.Singleline);
+        
+        return description;
+    }
+
+    private void LoadEntries() {
+        string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+        string connectionString = $"Data Source={dbPath}";
+        try {
+            using (var connection = new SqliteConnection(connectionString)) {
+                connection.Open();
+                
+                string sql;
+                object? param = null;
+                
+                if (SelectedFeed != null) {
+                    sql = @"SELECT e.*, f.name as feed_name, c.color as feed_color 
+                            FROM entries e 
+                            JOIN feeds f ON e.feed_id = f.id 
+                            LEFT JOIN categories c ON f.category_id = c.id
+                            WHERE e.feed_id = @FeedId AND e.filtered = 0
+                            ORDER BY e.published DESC 
+                            LIMIT 100";
+                    param = new { FeedId = SelectedFeed.id };
+                    Console.WriteLine($"SQL filter by feed: {SelectedFeed.name} (ID: {SelectedFeed.id})");
+                } 
+                else if (SelectedCategory != null) {
+                    sql = @"SELECT e.*, f.name as feed_name, c.color as feed_color 
+                            FROM entries e 
+                            JOIN feeds f ON e.feed_id = f.id 
+                            LEFT JOIN categories c ON f.category_id = c.id
+                            WHERE f.category_id = @CategoryId AND e.filtered = 0
+                            ORDER BY e.published DESC 
+                            LIMIT 100";
+                    param = new { CategoryId = SelectedCategory.id };
+                    Console.WriteLine($"SQL filter by category: {SelectedCategory.name} (ID: {SelectedCategory.id})");
+                } 
+                else {
+                    sql = @"SELECT e.*, f.name as feed_name, c.color as feed_color 
+                            FROM entries e 
+                            JOIN feeds f ON e.feed_id = f.id 
+                            LEFT JOIN categories c ON f.category_id = c.id
+                            WHERE e.filtered = 0
+                            ORDER BY e.published DESC 
+                            LIMIT 100";
+                    Console.WriteLine("SQL no filter (all entries)");
+                }
+                
+                Entries = connection.Query<Entry>(sql, param).ToList();
+                
+                // Process each entry to sanitize description and set default colors
+                foreach(var entry in Entries) {
+                    if (string.IsNullOrEmpty(entry.feed_color)) {
+                        entry.feed_color = "#888888";
+                    }
+                    entry.description = SanitizeDescription(entry.description);
+                }
+                
+                Console.WriteLine($"Loaded {Entries.Count} entries with filter: {FilterTitle}");
+            }
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"Error loading entries: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+        }
+    }
+    
+    private void ToggleRead(Entry entry) {
+        try {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            using (var connection = new SqliteConnection(connectionString)) {
+                connection.Open();
+                string sql = "UPDATE entries SET read = @read WHERE id = @id";
+                int newReadStatus = entry.read == 1 ? 0 : 1;
+                connection.Execute(sql, new { read = newReadStatus, id = entry.id });
+                entry.read = newReadStatus;
+                Console.WriteLine($"Toggled read status for entry {entry.id} to {newReadStatus}");
+            }
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"Error toggling read status: {ex.Message}");
+        }
+        StateHasChanged();
+    }
+
+    private void SelectFeed(Feed feed) {
+        OnFeedSelected.InvokeAsync(feed);
+    }
+    
+    private void RemoveFeedFilter() {
+        Console.WriteLine("Removing feed filter");
+        SelectedFeed = null;
+        SelectedCategory = null;
+        FilterTitle = "All Entries";
+        FilterColor = "";
+        LoadEntries();
+        StateHasChanged();
+    }
+
+    private void ToggleDescription(Entry entry) {
+        // Mark as read if not already read
+        if (entry.read == 0) {
+            MarkEntryAsRead(entry);
+        }
+        
+        // Toggle description visibility
+        if (ExpandedEntryId == entry.id) {
+            ExpandedEntryId = null;
+        } else {
+            ExpandedEntryId = entry.id;
+        }
+        StateHasChanged();
+    }
+
+    private void MarkEntryAsRead(Entry entry) {
+        try {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            using (var connection = new SqliteConnection(connectionString)) {
+                connection.Open();
+                string sql = "UPDATE entries SET read = 1 WHERE id = @id";
+                connection.Execute(sql, new { id = entry.id });
+                entry.read = 1;
+                Console.WriteLine($"Marked entry {entry.id} as read");
+            }
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"Error marking entry as read: {ex.Message}");
+        }
+    }
+    
+    // Comment out modal-related methods
+    /*
+    private void OpenEntryModal(Entry entry) {
+        SelectedEntry = entry;
+        IsModalOpen = true;
+        
+        if (entry.read == 0) {
+            MarkEntryAsRead(entry);
+        }
+        
+        StateHasChanged();
+    }
+    
+    private async Task CloseModal() {
+        IsModalOpen = false;
+        try {
+            await JSRuntime.InvokeVoidAsync("removeModalKeyboardListener");
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"Error removing keyboard listener: {ex.Message}");
+        }
+        StateHasChanged();
+    }
+    
+    private string GetFormattedDescription(string? description) {
+        if (string.IsNullOrEmpty(description)) {
+            return "No description available.";
+        }
+        return description;
+    }
+
+    private void NavigateEntry(bool next) {
+        if (SelectedEntry == null || !Entries.Any()) return;
+        
+        CurrentEntryIndex = Entries.FindIndex(e => e.id == SelectedEntry.id);
+        if (next) {
+            CurrentEntryIndex = (CurrentEntryIndex + 1) % Entries.Count;
+        } else {
+            CurrentEntryIndex = (CurrentEntryIndex - 1 + Entries.Count) % Entries.Count;
+        }
+        
+        SelectedEntry = Entries[CurrentEntryIndex];
+        if (SelectedEntry.read == 0) {
+            MarkEntryAsRead(SelectedEntry);
+        }
+        StateHasChanged();
+    }
+    */
+}
+
+<div class="feed-entries">
+    <h3>
+        <span style="@(string.IsNullOrEmpty(FilterColor) ? "" : $"color: {FilterColor}")">
+            @FilterTitle (@Entries.Count)
+        </span>
+        @if (SelectedFeed != null || SelectedCategory != null) {
+            <button class="btn-clear-filter" @onclick="RemoveFeedFilter">Clear Filter</button>
+        }
+    </h3>
+    
+    @if (!Entries.Any()) {
+        <p>No entries found.</p>
+    } else {
+        @foreach (var entry in Entries) {
+            <div class="rss-entry"> 
+                <div class="rss-entry-read-status">
+                    <button class="btn-toggle-read" @onclick="() => ToggleRead(entry)">
+                        @if (entry.read == 1) {
+                            <span>&check;</span>
+                        } else {
+                            <span>&#9675;</span>
+                        }
+                    </button>
+                </div>
+                <div class="rss-entry-feed-name" style="background-color: @entry.feed_color">
+                    <span class="feed-name-text">@entry.feed_name</span>
+                    @if (SelectedFeed != null || SelectedCategory != null) {
+                        <span class="feed-badge-remove" @onclick:stopPropagation="true" @onclick="() => RemoveFeedFilter()">×</span>
+                    }
+                </div>
+                <div class="rss-entry-title @(entry.read == 0 ? "unread" : "")" @onclick="() => ToggleDescription(entry)">
+                    @entry.title
+                </div>
+                <div class="rss-entry-pubdate">@entry.published.ToString("g")</div>
+            </div>
+            @if (ExpandedEntryId == entry.id) {
+                <div class="rss-entry-description" style="display: block;height: fit-content;">
+                    @((MarkupString)entry.description)
+                    @if (!string.IsNullOrEmpty(entry.link)) {
+                        <div class="rss-entry-read-more">
+                            <a href="@entry.link" target="_blank" rel="noopener noreferrer">Read More →</a>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    }
+</div>
+
+@*  // Alternative modal state implementation
+@if (IsModalOpen && SelectedEntry != null) {
+    <div class="modal-overlay" @onclick="CloseModal">
+        <button class="modal-nav-btn prev" @onclick:stopPropagation="true" @onclick="() => NavigateEntry(false)">←</button>
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3 class="modal-title">@SelectedEntry.title</h3>
+                <div class="modal-feed-badge" style="background-color: @SelectedEntry.feed_color">
+                    @SelectedEntry.feed_name
+                </div>
+                <button class="modal-close-btn" @onclick="CloseModal">×</button>
+            </div>
+            <div class="modal-info">
+                <div class="modal-date">Published: @SelectedEntry.published.ToString("f")</div>
+                @if (!string.IsNullOrEmpty(SelectedEntry.link)) {
+                    <div class="modal-link">
+                        <a href="@SelectedEntry.link" target="_blank" rel="noopener noreferrer">Read full article</a>
+                    </div>
+                }
+            </div>
+            <div class="modal-body">
+                <div class="modal-description">
+                    @((MarkupString)GetFormattedDescription(SelectedEntry.description))
+                </div>
+            </div>
+        </div>
+        <button class="modal-nav-btn next" @onclick:stopPropagation="true" @onclick="() => NavigateEntry(true)">→</button>
+    </div>
+}
+*@

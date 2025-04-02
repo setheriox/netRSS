@@ -1,0 +1,161 @@
+.feed-sidebar {
+    background-color: var(--dark-secondary);
+    padding: 1rem;
+    border-right: 1px solid var(--dark-border);
+    height: 100%; /* Fill available height in grid container */
+    overflow-y: auto;
+    position: relative;
+}
+
+.feed-sidebar-header {
+    color: var(--dark-primary);
+    margin-bottom: 1rem;
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+.feed-sidebar-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.feed-sidebar-category {
+    border-bottom: 1px solid var(--dark-border);
+    margin-bottom: 0.5rem;
+}
+
+.feed-sidebar-category-name {
+    color: var(--dark-text);
+    font-weight: bold;
+}
+
+.feed-sidebar-category-feeds {
+    padding-left: 1rem;
+}
+
+.feed-sidebar-feed {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.feed-sidebar-feed:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.feed-sidebar-category-feeds-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    grid-column: 1;
+    font-size: 10pt;
+}
+
+.feed-sidebar-category-feeds-total {
+    color: var(--dark-secondary-text, #aaa);
+    font-size: 0.8rem;
+    min-width: 2rem;
+    text-align: right;
+    grid-column: 2;
+}
+
+.feed-sidebar-category-feeds-unread {
+    color: var(--dark-accent);
+    font-weight: bold;
+    font-size: 0.8rem;
+    min-width: 2rem;
+    text-align: right;
+    grid-column: 3;
+}
+
+.feed-sidebar-category-feeds-markread {
+    grid-column: 4;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+    width: 1.2rem;
+    text-align: center;
+}
+
+.feed-sidebar-feed:hover .feed-sidebar-category-feeds-markread {
+    opacity: 1;
+}
+
+.feed-sidebar-category-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    padding: 0.25rem 0;
+    cursor: pointer;
+}
+
+.feed-sidebar-category-counts {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--dark-secondary-text, #aaa);
+}
+
+.feed-count {
+    color: var(--dark-secondary-text, #aaa);
+}
+
+.unread-count {
+    color: var(--dark-accent);
+    font-weight: bold;
+}
+
+.btn-mark-read {
+    background: none;
+    border: none;
+    color: var(--dark-primary);
+    cursor: pointer;
+    padding: 0;
+    font-size: 0.9rem;
+    transition: transform 0.1s, color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    min-width: 1.5rem;
+}
+
+.btn-mark-read:hover {
+    color: var(--dark-accent);
+    transform: scale(1.2);
+}
+
+.feed-sidebar p {
+    color: var(--dark-secondary-text, #aaa); /* Lighter text for messages */
+    font-style: italic;
+    padding-left: 0.5rem;
+}
+
+.feed-sidebar-view-all {
+    padding: 0.5rem 1rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--dark-border);
+}
+
+.feed-sidebar-view-all-button {
+    background-color: var(--dark-secondary);
+    color: var(--dark-primary);
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: center;
+    font-weight: 500;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.feed-sidebar-view-all-button:hover {
+    background-color: var(--dark-accent);
+    color: var(--dark-background);
+} 

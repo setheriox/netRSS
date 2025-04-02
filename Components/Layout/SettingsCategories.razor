@@ -1,0 +1,292 @@
+@using Microsoft.AspNetCore.Components
+@using netRSS.Models
+@using System.Data
+@using Dapper
+@using Microsoft.Data.Sqlite
+@inject IDbConnectionFactory DbConnectionFactory
+@rendermode InteractiveServer
+
+<div class="settings-categories-container">
+    <div class="settings-categories-header">
+        <h3>Categories</h3>
+        <button class="btn-add" @onclick="ShowAddModal">
+            <span class="btn-icon">+</span> Add Category
+        </button>
+    </div>
+
+    @if (IsLoading) {
+        <div class="loading-indicator">Loading categories...</div>
+    } else if (Categories.Count == 0) {
+        <div class="empty-state">
+            <p>No categories found. Click the Add button to create your first category.</p>
+            @if (!string.IsNullOrEmpty(LoadError)) {
+                <div class="error-message">@LoadError</div>
+            }
+        </div>
+    } else {
+        <div class="settings-table-container">
+            <table class="settings-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Color</th>
+                        <th>Feeds</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var category in Categories) {
+                        <tr>
+                            <td>@category.name</td>
+                            <td>
+                                <div class="category-color">
+                                    <span class="color-dot" style="background-color: @category.color"></span>
+                                    <span class="color-code">@category.color</span>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="feed-count">@category.FeedCount</span>
+                            </td>
+                            <td class="action-buttons">
+                                <button class="btn-edit" @onclick="() => ShowEditModal(category)" title="Edit Category">
+                                    Edit
+                                </button>
+                                <button class="btn-delete" @onclick="() => ShowDeleteModal(category)" title="Delete Category">
+                                    Delete
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@if (_showEditModal) {
+    <div class="modal-overlay" @onclick="CloseEditModal">
+        <div class="modal-container" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>@(_isNewCategory ? "Add Category" : "Edit Category")</h3>
+                <button class="modal-close-button" @onclick="CloseEditModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-category-name">
+                    <label>Category Name:</label>
+                    <input type="text" class="form-input" @bind="_categoryName" @bind:event="oninput" />
+                    @if (!string.IsNullOrEmpty(_nameError)) {
+                        <div class="validation-error">@_nameError</div>
+                    }
+                </div>
+                <div class="modal-category-color">
+                    <label>Category Color:</label>
+                    <div style="display: flex; gap: 10px; margin-top: 8px;">
+                        <input type="color" @bind="_categoryColor" @bind:event="oninput" style="height: 40px;" />
+                        <input type="text" class="form-input" @bind="_categoryColor" @bind:event="oninput" />
+                    </div>
+                    <div style="margin-top: 10px; height: 40px; border-radius: 4px; background-color: @_categoryColor">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-cancel" @onclick="CloseEditModal">Cancel</button>
+                <button class="modal-button modal-button-primary" @onclick="SaveCategory">Save</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showDeleteModal) {
+    <div class="modal-overlay" @onclick="CloseDeleteModal">
+        <div class="modal-container" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Delete Category</h3>
+                <button class="modal-close-button" @onclick="CloseDeleteModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the category "@_categoryToDelete?.name"?</p>
+                @if (_categoryToDelete?.FeedCount > 0) {
+                    <div class="warning-message">
+                        <p>This category has @_categoryToDelete.FeedCount feeds associated with it. Deleting this category will move all feeds to the Unsorted category.</p>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-cancel" @onclick="CloseDeleteModal">Cancel</button>
+                <button class="modal-button modal-button-primary" @onclick="DeleteCategory">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Category> Categories { get; set; } = new();
+    private bool IsLoading { get; set; } = true;
+    private string LoadError { get; set; } = string.Empty;
+
+    // Edit modal state
+    private bool _showEditModal = false;
+    private bool _isNewCategory = false;
+    private Category? _currentCategory;
+    private string _categoryName = string.Empty;
+    private string _categoryColor = "#3498db";
+    private string _nameError = string.Empty;
+
+    // Delete modal state
+    private bool _showDeleteModal = false;
+    private Category? _categoryToDelete;
+
+    protected override void OnInitialized()
+    {
+        LoadCategories();
+    }
+
+    private void LoadCategories()
+    {
+        IsLoading = true;
+        LoadError = string.Empty;
+        Categories.Clear();
+        
+        try
+        {
+            using var connection = DbConnectionFactory.CreateConnection();
+            
+            // Load categories
+            string sqlCategories = "SELECT * FROM categories ORDER BY name";
+            Categories = connection.Query<Category>(sqlCategories).ToList();
+
+            // Get feed counts for each category
+            foreach (var category in Categories)
+            {
+                string sqlFeedCount = "SELECT COUNT(*) FROM feeds WHERE category_id = @CategoryId";
+                category.FeedCount = connection.ExecuteScalar<int>(sqlFeedCount, new { CategoryId = category.id });
+            }
+        }
+        catch (Exception ex)
+        {
+            LoadError = $"Error loading categories: {ex.Message}";
+            Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
+        }
+        
+        IsLoading = false;
+        StateHasChanged();
+    }
+
+    // Edit/Add Category Functions
+    private void ShowAddModal()
+    {
+        _isNewCategory = true;
+        _currentCategory = null;
+        _categoryName = string.Empty;
+        _categoryColor = "#3498db";
+        _nameError = string.Empty;
+        _showEditModal = true;
+    }
+
+    private void ShowEditModal(Category category)
+    {
+        _isNewCategory = false;
+        _currentCategory = category;
+        _categoryName = category.name;
+        _categoryColor = category.color;
+        _nameError = string.Empty;
+        _showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        _showEditModal = false;
+    }
+
+    private void SaveCategory()
+    {
+        _nameError = string.Empty;
+
+        // Validate input
+        if (string.IsNullOrWhiteSpace(_categoryName))
+        {
+            _nameError = "Category name cannot be empty";
+            return;
+        }
+
+        try
+        {
+            using var connection = DbConnectionFactory.CreateConnection();
+            
+            if (_isNewCategory)
+            {
+                // Insert new category
+                string sql = "INSERT INTO categories (name, color) VALUES (@Name, @Color)";
+                connection.Execute(sql, new { Name = _categoryName, Color = _categoryColor });
+                Console.WriteLine($"Added new category: {_categoryName} with color {_categoryColor}");
+            }
+            else if (_currentCategory != null)
+            {
+                // Update existing category
+                string sql = "UPDATE categories SET name = @Name, color = @Color WHERE id = @Id";
+                connection.Execute(sql, new { Name = _categoryName, Color = _categoryColor, Id = _currentCategory.id });
+                Console.WriteLine($"Updated category: {_categoryName} with color {_categoryColor}");
+            }
+
+            // Refresh categories
+            LoadCategories();
+            
+            // Close modal
+            _showEditModal = false;
+        }
+        catch (Exception ex)
+        {
+            _nameError = $"Error saving category: {ex.Message}";
+            Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
+    // Delete Category Functions
+    private void ShowDeleteModal(Category category)
+    {
+        _categoryToDelete = category;
+        _showDeleteModal = true;
+    }
+
+    private void CloseDeleteModal()
+    {
+        _showDeleteModal = false;
+        _categoryToDelete = null;
+    }
+
+    private void DeleteCategory()
+    {
+        if (_categoryToDelete == null) return;
+        
+        try
+        {
+            using var connection = DbConnectionFactory.CreateConnection();
+            
+            // Find Unsorted category
+            int unsortedId = connection.ExecuteScalar<int>("SELECT id FROM categories WHERE name = 'Unsorted'");
+            
+            // Move feeds to Unsorted category
+            if (_categoryToDelete.FeedCount > 0)
+            {
+                string updateFeedsSql = "UPDATE feeds SET category_id = @UnsortedId WHERE category_id = @CategoryId";
+                connection.Execute(updateFeedsSql, new { UnsortedId = unsortedId, CategoryId = _categoryToDelete.id });
+            }
+            
+            // Delete the category
+            string deleteSql = "DELETE FROM categories WHERE id = @Id";
+            connection.Execute(deleteSql, new { Id = _categoryToDelete.id });
+            
+            // Refresh the list
+            LoadCategories();
+            
+            // Close modal
+            _showDeleteModal = false;
+            _categoryToDelete = null;
+        }
+        catch (Exception ex)
+        {
+            LoadError = $"Error deleting category: {ex.Message}";
+            Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+} 

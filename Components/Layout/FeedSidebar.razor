@@ -1,0 +1,225 @@
+@using netRSS.Models
+@using System.Data
+@using System
+@using Dapper
+@using Microsoft.Data.Sqlite
+@using Microsoft.AspNetCore.Components
+@using System.IO
+@rendermode InteractiveServer
+
+@code {
+    [Parameter]
+    public EventCallback<Category> OnCategorySelected { get; set; }
+    
+    [Parameter]
+    public EventCallback<Feed> OnFeedSelected { get; set; }
+    
+    private List<Category> Categories { get; set; } = new();
+
+    protected override void OnInitialized()
+    {
+        LoadCategoriesAndFeeds();
+    }
+    
+    private void CategorySelected(Category category)
+    {
+        Console.WriteLine($"Category selected: {category.name}");
+        OnCategorySelected.InvokeAsync(category);
+    }
+    
+    private void FeedSelected(Feed feed)
+    {
+        Console.WriteLine($"Feed selected: {feed.name}");
+        OnFeedSelected.InvokeAsync(feed);
+    }
+    
+    private void MarkFeedAsRead(Feed feed)
+    {
+        Console.WriteLine($"Marking feed as read: {feed.name} (ID: {feed.id})");
+        
+        try
+        {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            using (var connection = new SqliteConnection(connectionString))
+            {
+                connection.Open();
+                
+                // Update all entries for this feed to read=1
+                string sql = "UPDATE entries SET read = 1 WHERE feed_id = @FeedId AND read = 0";
+                int rowsAffected = connection.Execute(sql, new { FeedId = feed.id });
+                
+                Console.WriteLine($"Marked {rowsAffected} entries as read for feed: {feed.name}");
+                
+                // Update unread count for the feed
+                feed.UnreadCount = 0;
+                
+                // Update the category unread count
+                if (Categories != null)
+                {
+                    var category = Categories.FirstOrDefault(c => c.id == feed.category_id);
+                    if (category != null)
+                    {
+                        // Recalculate category unread count
+                        category.UnreadCount = category.Feeds.Sum(f => f.UnreadCount);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error marking feed as read: {ex.Message}");
+        }
+        
+        StateHasChanged();
+    }
+    
+    private void MarkCategoryAsRead(Category category)
+    {
+        Console.WriteLine($"Marking category as read: {category.name} (ID: {category.id})");
+        
+        try
+        {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            using (var connection = new SqliteConnection(connectionString))
+            {
+                connection.Open();
+                
+                // Get all feed IDs in this category
+                var feedIds = category.Feeds.Select(f => f.id).ToArray();
+                
+                // Update all entries for feeds in this category to read=1
+                string sql = "UPDATE entries SET read = 1 WHERE feed_id IN @FeedIds AND read = 0";
+                int rowsAffected = connection.Execute(sql, new { FeedIds = feedIds });
+                
+                Console.WriteLine($"Marked {rowsAffected} entries as read for category: {category.name}");
+                
+                // Update unread counts
+                foreach (var feed in category.Feeds)
+                {
+                    feed.UnreadCount = 0;
+                }
+                
+                category.UnreadCount = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error marking category as read: {ex.Message}");
+        }
+        
+        StateHasChanged();
+    }
+    
+    private void LoadCategoriesAndFeeds()
+    {
+        string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+        string connectionString = $"Data Source={dbPath}";
+
+        using (var connection = new SqliteConnection(connectionString))
+        {
+            connection.Open();
+
+            // Load categories
+            string sqlCategories = "SELECT * FROM categories";
+            Categories = connection.Query<Category>(sqlCategories).ToList();
+
+            // Load feeds and map them to categories
+            string sqlFeeds = "SELECT * FROM feeds WHERE category_id IN @CategoryIds";
+            var feeds = connection.Query<Feed>(sqlFeeds, new { CategoryIds = Categories.Select(c => c.id).ToArray() }).ToList();
+
+            // Assign feeds to their respective categories
+            foreach (var category in Categories)
+            {
+                category.Feeds = feeds.Where(f => f.category_id == category.id).ToList();
+                
+                // Count feeds in this category
+                category.FeedCount = category.Feeds.Count;
+                category.UnreadCount = 0;
+                
+                // Get counts for each feed
+                foreach (var feed in category.Feeds)
+                {
+                    // Total entries count
+                    string sqlTotal = "SELECT COUNT(*) FROM entries WHERE feed_id = @FeedId";
+                    feed.TotalCount = connection.ExecuteScalar<int>(sqlTotal, new { FeedId = feed.id });
+                    
+                    // Unread entries count
+                    string sqlUnread = "SELECT COUNT(*) FROM entries WHERE feed_id = @FeedId AND read = 0";
+                    feed.UnreadCount = connection.ExecuteScalar<int>(sqlUnread, new { FeedId = feed.id });
+                    
+                    // Add to category unread count
+                    category.UnreadCount += feed.UnreadCount;
+                }
+            }
+            
+            // Re-order categories to ensure "Unsorted" is last
+            Categories = Categories
+                .OrderBy(c => c.name.Equals("Unsorted", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .ThenBy(c => c.name)
+                .ToList();
+        }
+    }
+
+    private void ViewAll() {
+        Console.WriteLine("View All clicked - showing all entries");
+        OnCategorySelected.InvokeAsync(null);
+        OnFeedSelected.InvokeAsync(null);
+    }
+}
+
+<div class="feed-sidebar">
+    <div class="feed-sidebar-content">
+<!--        <div class="feed-sidebar-view-all" @onclick="ViewAll">
+            <div class="feed-sidebar-view-all-button">
+                View All
+            </div>
+        </div>
+-->
+        @if (Categories == null || !Categories.Any()) {
+            <p>No categories found.</p>
+        } else {
+            @foreach (var category in Categories) {
+                <div class="feed-sidebar-category">
+                    <div class="feed-sidebar-category-header" @onclick="@(e => CategorySelected(category))">
+                        <div class="feed-sidebar-category-name" style="color: @category.color">@category.name</div>
+                        <div class="feed-sidebar-category-counts">
+                            <span class="feed-count">@category.FeedCount feeds</span>
+                            @if (category.UnreadCount > 0)
+                            {
+                                <span class="unread-count">@category.UnreadCount unread</span>
+                                <button class="btn-mark-read" 
+                                        title="Mark category as read" 
+                                        @onclick="@(() => MarkCategoryAsRead(category))" 
+                                        @onclick:stopPropagation>✓</button>
+                            }
+                        </div>
+                    </div>
+                    <div class="feed-sidebar-category-feeds">
+                        @if (category.Feeds != null && category.Feeds.Any()) {
+                            @foreach (var feed in category.Feeds) {
+                                <div class="feed-sidebar-feed" @onclick="@(e => FeedSelected(feed))">
+                                    <div class="feed-sidebar-category-feeds-name" style="color: @category.color">@feed.name</div>
+                                    <div class="feed-sidebar-category-feeds-total">@feed.TotalCount</div>
+                                    <div class="feed-sidebar-category-feeds-unread">@feed.UnreadCount</div>
+                                    <div class="feed-sidebar-category-feeds-markread">
+                                        @if (feed.UnreadCount > 0)
+                                        {
+                                            <button class="btn-mark-read" 
+                                                    title="Mark as read" 
+                                                    @onclick="@(() => MarkFeedAsRead(feed))" 
+                                                    @onclick:stopPropagation>✓</button>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        } else {
+                            <p>No feeds in this category.</p>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>

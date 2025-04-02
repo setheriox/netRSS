@@ -1,0 +1,17 @@
+.feeds-page-layout {
+    display: grid;
+    grid-template-columns: 250px 1fr; /* Sidebar width and main content */
+    position: fixed;
+    top: 60px; /* Adjust to match your navbar height */
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+}
+
+/* Style for the feed content area */
+:deep(.feed-entries) {
+    height: 100%;
+    overflow-y: auto;
+    padding: 1rem;
+} 
