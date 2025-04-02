@@ -159,3 +159,17 @@
     background-color: var(--dark-accent);
     color: var(--dark-background);
 } 
+
+.btn-view-unread {
+    background-color: var(--dark-secondary);
+    color: var(--dark-primary);
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    width: 100%;
+}
+
+.btn-view-unread:hover {
+    background-color: var(--dark-accent);
+    color: var(--dark-background);
+}

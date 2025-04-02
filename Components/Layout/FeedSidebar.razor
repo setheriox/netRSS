@@ -14,11 +14,22 @@
     [Parameter]
     public EventCallback<Feed> OnFeedSelected { get; set; }
     
+    [Parameter]
+    public EventCallback<bool> OnViewUnread { get; set; }
+    
     private List<Category> Categories { get; set; } = new();
+    private bool ShowUnreadOnly = false;
 
     protected override void OnInitialized()
     {
         LoadCategoriesAndFeeds();
+    }
+    
+    private void ToggleUnreadView()
+    {
+        ShowUnreadOnly = !ShowUnreadOnly;
+        OnViewUnread.InvokeAsync(ShowUnreadOnly);
+        StateHasChanged();
     }
     
     private void CategorySelected(Category category)
@@ -171,12 +182,17 @@
 
 <div class="feed-sidebar">
     <div class="feed-sidebar-content">
-<!--        <div class="feed-sidebar-view-all" @onclick="ViewAll">
-            <div class="feed-sidebar-view-all-button">
-                View All
-            </div>
+        <div class="feed-sidebar-view-unread">
+            <button class="btn-view-unread @(ShowUnreadOnly ? "active" : "")" @onclick="ToggleUnreadView">
+                Viewing
+                @if (ShowUnreadOnly) {
+                    <span>Unread: </span>
+                    <span class="unread-count">(@Categories.Sum(c => c.UnreadCount))</span>
+                } else {
+                    <span class="unread-count">All</span>
+                }
+            </button>
         </div>
--->
         @if (Categories == null || !Categories.Any()) {
             <p>No categories found.</p>
         } else {

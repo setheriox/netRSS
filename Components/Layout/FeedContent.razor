@@ -20,6 +20,7 @@
     private Category? SelectedCategory;
     private string FilterTitle = "All Entries";
     private string FilterColor = "";
+    private bool ShowUnreadOnly = false;
     
     // Change from HashSet to single integer to track only one expanded entry
     private int? ExpandedEntryId = null;
@@ -86,6 +87,13 @@
         StateHasChanged();
     }
 
+    public void SetUnreadFilter(bool showUnreadOnly) {
+        ShowUnreadOnly = showUnreadOnly;
+        FilterTitle = showUnreadOnly ? "Unread Entries" : "All Entries";
+        LoadEntries();
+        StateHasChanged();
+    }
+
     private string SanitizeDescription(string? description) {
         if (string.IsNullOrEmpty(description)) return "";
         
@@ -112,6 +120,7 @@
                             JOIN feeds f ON e.feed_id = f.id 
                             LEFT JOIN categories c ON f.category_id = c.id
                             WHERE e.feed_id = @FeedId AND e.filtered = 0
+                            " + (ShowUnreadOnly ? "AND e.read = 0" : "") + @"
                             ORDER BY e.published DESC 
                             LIMIT 100";
                     param = new { FeedId = SelectedFeed.id };
@@ -123,6 +132,7 @@
                             JOIN feeds f ON e.feed_id = f.id 
                             LEFT JOIN categories c ON f.category_id = c.id
                             WHERE f.category_id = @CategoryId AND e.filtered = 0
+                            " + (ShowUnreadOnly ? "AND e.read = 0" : "") + @"
                             ORDER BY e.published DESC 
                             LIMIT 100";
                     param = new { CategoryId = SelectedCategory.id };
@@ -134,6 +144,7 @@
                             JOIN feeds f ON e.feed_id = f.id 
                             LEFT JOIN categories c ON f.category_id = c.id
                             WHERE e.filtered = 0
+                            " + (ShowUnreadOnly ? "AND e.read = 0" : "") + @"
                             ORDER BY e.published DESC 
                             LIMIT 100";
                     Console.WriteLine("SQL no filter (all entries)");
