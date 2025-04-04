@@ -1,6 +1,6 @@
 services:
   app:
-    image: netrss-dev
+    container_name: netRSS
     build: 
       context: .
       dockerfile: Dockerfile
