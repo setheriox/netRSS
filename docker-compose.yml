@@ -1,0 +1,19 @@
+services:
+  app:
+    image: netrss-dev
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "15002:15001"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:15001
+    volumes:
+      # Uncomment the next line if ./database/rss.db exists on your host machine
+      - ./database/rss.db:/app/app/Data/rss.db
+      - keys-volume:/root/.aspnet/DataProtection-Keys
+    restart: always
+
+volumes:
+  keys-volume:
