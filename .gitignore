@@ -16,12 +16,13 @@ x86/
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
 bld/
-[Bb]in/
-[Oo]bj/
+app/[Bb]in/
+app/[Oo]bj/
 [Ll]og/
 
 # Visual Studio cache/options directory
 .vs/
+app/.vs/
 
 # MSTest test Results
 [Tt]est[Rr]esult*/
@@ -32,3 +33,5 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
+# Database files
+database/rss.db
