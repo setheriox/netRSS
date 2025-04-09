@@ -70,6 +70,15 @@
                             <div class="filtered-entry-title">@entry.title</div>
                             <div class="filtered-entry-date">@entry.published.ToString("g")</div>
                         </div>
+                        <div class="filtered-entry-details">
+                            <div class="filtered-entry-filters">
+                                <span class="filter-label">Filtered by:</span>
+                                <span class="filter-value">@entry.applied_filters</span>
+                            </div>
+                            <button class="btn-remove-filter" @onclick="() => RemoveFilterFromEntry(entry)" title="Remove Filter">
+                                Remove Filter
+                            </button>
+                        </div>
                     </div>
                 }
             </div>
@@ -203,10 +212,24 @@
         try {
             using var connection = DbConnectionFactory.CreateConnection();
             string sql = @"
-                SELECT e.*, f.name as feed_name, f.url as feed_url, c.color as feed_color
+                WITH EntryFilters AS (
+                    SELECT e.id as entry_id, GROUP_CONCAT(f.term) as filter_terms
+                    FROM entries e
+                    JOIN filters f ON 
+                        (f.title = 1 AND e.title LIKE '%' || f.term || '%')
+                        OR (f.description = 1 AND e.description LIKE '%' || f.term || '%')
+                    WHERE e.filtered = 1 AND e.manually_filtered = 0
+                    GROUP BY e.id
+                )
+                SELECT e.*, f.name as feed_name, f.url as feed_url, c.color as feed_color,
+                       CASE 
+                           WHEN e.manually_filtered = 1 THEN 'Manually filtered'
+                           ELSE COALESCE(ef.filter_terms, 'No matching filters')
+                       END as applied_filters
                 FROM entries e
                 JOIN feeds f ON e.feed_id = f.id
                 JOIN categories c ON f.category_id = c.id
+                LEFT JOIN EntryFilters ef ON e.id = ef.entry_id
                 WHERE e.filtered = 1
                 ORDER BY e.published DESC";
             
@@ -217,20 +240,34 @@
         }
     }
 
+    private void RemoveFilterFromEntry(Entry entry)
+    {
+        try {
+            using var connection = DbConnectionFactory.CreateConnection();
+            string sql = "UPDATE entries SET filtered = 0, manually_filtered = 0 WHERE id = @Id";
+            connection.Execute(sql, new { Id = entry.id });
+            Console.WriteLine($"Removed filter from entry {entry.id}");
+            
+            // Reload the filtered entries list
+            LoadFilteredEntries();
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"ERROR removing filter from entry: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
     private void ApplyFilters()
     {
         try {
             using var connection = DbConnectionFactory.CreateConnection();
             
-            // First reset all entries
-            string resetSql = "UPDATE entries SET filtered = 0";
-            connection.Execute(resetSql);
-            
-            // Then apply all filters
+            // Apply filters only to entries that aren't manually filtered
             string applySql = @"
                 UPDATE entries
                 SET filtered = 1
-                WHERE EXISTS (
+                WHERE filtered = 0
+                AND manually_filtered = 0
+                AND EXISTS (
                     SELECT 1 FROM filters f
                     WHERE (f.title = 1 AND entries.title LIKE '%' || f.term || '%')
                        OR (f.description = 1 AND entries.description LIKE '%' || f.term || '%')

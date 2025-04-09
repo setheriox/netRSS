@@ -7,8 +7,8 @@
 <PageTitle>Feeds</PageTitle>
 
 <div class="feeds-page-layout">
-    <FeedSidebar @ref="sidebarComponent" OnCategorySelected="@HandleCategorySelected" OnFeedSelected="@HandleFeedSelected" OnViewUnread="@HandleViewUnread" OnViewStarred="@HandleViewStarred" />
-    <FeedContent @ref="contentComponent" />
+    <FeedSidebar @ref="sidebarComponent" OnCategorySelected="@HandleCategorySelected" OnFeedSelected="@HandleFeedSelected" OnViewUnread="@HandleViewUnread" OnViewStarred="@HandleViewStarred" OnEntryFiltered="@HandleEntryFiltered" />
+    <FeedContent @ref="contentComponent" OnEntryFiltered="@HandleEntryFiltered" />
 </div>
 
 @code {
@@ -48,6 +48,15 @@
         if (contentComponent != null)
         {
             contentComponent.SetStarredFilter(showStarredOnly);
+        }
+    }
+    
+    private void HandleEntryFiltered(Entry entry)
+    {
+        Console.WriteLine($"Feeds.razor: Entry filtered: {entry.id}");
+        if (sidebarComponent != null)
+        {
+            sidebarComponent.UpdateCountsForFilteredEntry(entry);
         }
     }
 } 

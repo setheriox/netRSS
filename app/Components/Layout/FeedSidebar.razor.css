@@ -28,6 +28,10 @@
 .feed-sidebar-category-name {
     color: var(--dark-text);
     font-weight: bold;
+    font-weight: bold;
+    width: 70px;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .feed-sidebar-category-feeds {

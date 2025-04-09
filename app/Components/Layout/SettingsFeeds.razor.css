@@ -341,4 +341,13 @@
 @keyframes slideIn {
     from { transform: translateY(-20px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
+}
+
+.category-badge.uncategorized {
+    background-color: #888888;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    display: inline-block;
 } 

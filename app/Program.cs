@@ -129,6 +129,19 @@ void EnsureDatabaseExists(string dbPath)
             connection.Execute("ALTER TABLE entries ADD COLUMN starred INTEGER DEFAULT 0");
             Console.WriteLine("Added starred column to entries table");
         }
+        
+        // Check if manually_filtered column exists in entries table
+        try
+        {
+            // Try to select the manually_filtered column - this will fail if it doesn't exist
+            connection.ExecuteScalar<int>("SELECT manually_filtered FROM entries LIMIT 1");
+        }
+        catch (Exception)
+        {
+            // If the query fails, the column doesn't exist, so add it
+            connection.Execute("ALTER TABLE entries ADD COLUMN manually_filtered INTEGER DEFAULT 0");
+            Console.WriteLine("Added manually_filtered column to entries table");
+        }
     }
 }
 

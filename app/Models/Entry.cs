@@ -12,6 +12,8 @@ public class Entry
     public int feed_id { get; set; }
     public int read { get; set; } = 0;
     public int starred { get; set; } = 0;
+    public int filtered { get; set; } = 0;
+    public bool manually_filtered { get; set; } = false;
     
     [JsonIgnore]
     public Feed? Feed { get; set; }
@@ -19,4 +21,5 @@ public class Entry
     // Properties to store joined data
     public string feed_name { get; set; } = string.Empty;
     public string feed_color { get; set; } = string.Empty;
+    public string applied_filters { get; set; } = string.Empty;
 } 

@@ -51,7 +51,9 @@
                                         @feed.Category.name
                                     </div>
                                 } else {
-                                    <span class="no-category">None</span>
+                                    <div class="category-badge uncategorized">
+                                        Uncategorized
+                                    </div>
                                 }
                             </td>
                             <td>@feed.TotalCount</td>
@@ -91,6 +93,7 @@
                     <div class="form-group">
                         <label for="feedCategory">Category:</label>
                         <select id="feedCategory" class="form-select" @bind="SelectedCategoryId">
+                            <option value="0">Uncategorized</option>
                             @foreach (var category in Categories) {
                                 <option value="@category.id">@category.name</option>
                             }
@@ -162,6 +165,18 @@
             
             Console.WriteLine("Database connection opened successfully");
 
+            // Check if Uncategorized category exists, create it if not
+            string checkUncategorizedSql = "SELECT id FROM categories WHERE name = 'Uncategorized'";
+            var uncategorizedId = connection.QueryFirstOrDefault<int?>(checkUncategorizedSql);
+            
+            if (!uncategorizedId.HasValue)
+            {
+                string createUncategorizedSql = "INSERT INTO categories (name, color) VALUES ('Uncategorized', '#888888')";
+                connection.Execute(createUncategorizedSql);
+                uncategorizedId = connection.QueryFirstOrDefault<int>("SELECT last_insert_rowid()");
+                Console.WriteLine($"Created Uncategorized category with ID: {uncategorizedId}");
+            }
+
             // Load categories first (for the dropdown)
             string sqlCategories = "SELECT * FROM categories ORDER BY name";
             Categories = connection.Query<Category>(sqlCategories).ToList();
@@ -175,8 +190,12 @@
             // Get categories for each feed
             foreach (var feed in feedsList)
             {
-                string sqlCategory = "SELECT * FROM categories WHERE id = @CategoryId";
-                feed.Category = connection.QueryFirstOrDefault<Category>(sqlCategory, new { CategoryId = feed.category_id });
+                if (feed.category_id > 0) {
+                    string sqlCategory = "SELECT * FROM categories WHERE id = @CategoryId";
+                    feed.Category = connection.QueryFirstOrDefault<Category>(sqlCategory, new { CategoryId = feed.category_id });
+                } else {
+                    feed.Category = null;
+                }
                 
                 // Get entry count for this feed
                 string sqlEntryCount = "SELECT COUNT(*) FROM entries WHERE feed_id = @FeedId";
@@ -217,7 +236,7 @@
             // Add mode
             FeedName = string.Empty;
             FeedUrl = string.Empty;
-            // Default to first category if available
+            // Default to first category if available, otherwise Uncategorized
             SelectedCategoryId = Categories.Count > 0 ? Categories.First().id : 0;
         }
         
@@ -270,24 +289,40 @@
         
         try
         {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
-            string connectionString = $"Data Source={dbPath}";
-            using (var connection = new SqliteConnection(connectionString))
+            using var connection = DbConnectionFactory.CreateConnection();
+            connection.Open();
+            
+            // If Uncategorized is selected (0), find or create the Uncategorized category
+            int categoryId = SelectedCategoryId;
+            if (categoryId == 0)
             {
-                connection.Open();
+                string checkUncategorizedSql = "SELECT id FROM categories WHERE name = 'Uncategorized'";
+                var uncategorizedId = connection.QueryFirstOrDefault<int?>(checkUncategorizedSql);
                 
-                if (CurrentFeed == null)
+                if (!uncategorizedId.HasValue)
                 {
-                    // Add new feed
-                    string sql = "INSERT INTO feeds (name, url, category_id) VALUES (@Name, @Url, @CategoryId)";
-                    connection.Execute(sql, new { Name = FeedName, Url = FeedUrl, CategoryId = SelectedCategoryId });
+                    string createUncategorizedSql = "INSERT INTO categories (name, color) VALUES ('Uncategorized', '#888888')";
+                    connection.Execute(createUncategorizedSql);
+                    categoryId = connection.QueryFirstOrDefault<int>("SELECT last_insert_rowid()");
+                    Console.WriteLine($"Created Uncategorized category with ID: {categoryId}");
                 }
                 else
                 {
-                    // Update existing feed
-                    string sql = "UPDATE feeds SET name = @Name, url = @Url, category_id = @CategoryId WHERE id = @Id";
-                    connection.Execute(sql, new { Id = CurrentFeed.id, Name = FeedName, Url = FeedUrl, CategoryId = SelectedCategoryId });
+                    categoryId = uncategorizedId.Value;
                 }
+            }
+            
+            if (CurrentFeed == null)
+            {
+                // Add new feed
+                string sql = "INSERT INTO feeds (name, url, category_id) VALUES (@Name, @Url, @CategoryId)";
+                connection.Execute(sql, new { Name = FeedName, Url = FeedUrl, CategoryId = categoryId });
+            }
+            else
+            {
+                // Update existing feed
+                string sql = "UPDATE feeds SET name = @Name, url = @Url, category_id = @CategoryId WHERE id = @Id";
+                connection.Execute(sql, new { Id = CurrentFeed.id, Name = FeedName, Url = FeedUrl, CategoryId = categoryId });
             }
             
             // Refresh the list
