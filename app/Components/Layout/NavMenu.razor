@@ -1,23 +1,55 @@
 @using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
 
 <nav>
-    <div class="nav-item">
-        <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-            Home
-        </NavLink>
-    </div>
-    <div class="nav-item">
-        <NavLink class="nav-link" href="feeds">
-            Feeds
-        </NavLink>
-    </div>
-    <div class="nav-item">
-        <NavLink class="nav-link" href="settings">
-            Settings
-        </NavLink>
+    <div class="nav-left">
+        <div class="nav-item">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="nav-icon">🏠</span> Home
+            </NavLink>
+        </div>
+        <div class="nav-item">
+            <NavLink class="nav-link" href="feeds">
+                <span class="nav-icon">📰</span> Feeds
+            </NavLink>
+        </div>
+        <div class="nav-item">
+            <NavLink class="nav-link" href="search">
+                <span class="nav-icon">🔍</span> Search
+            </NavLink>
+        </div>
+        <div class="nav-item">
+            <NavLink class="nav-link" href="settings">
+                <span class="nav-icon">⚙️</span> Settings
+            </NavLink>
+        </div>
     </div>
 </nav>
 
 @code {
+    private string SearchQuery = "";
     
+    private void HandleSearch()
+    {
+        Console.WriteLine($"NavMenu.razor HandleSearch - SearchQuery: {SearchQuery}");
+        if (!string.IsNullOrWhiteSpace(SearchQuery))
+        {
+            string searchUrl = $"/search?SearchTerm={Uri.EscapeDataString(SearchQuery.Trim())}";
+            Console.WriteLine($"NavMenu.razor HandleSearch - Navigating to: {searchUrl}");
+            NavigationManager.NavigateTo(searchUrl);
+        }
+    }
+    
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        Console.WriteLine($"NavMenu.razor HandleKeyDown - Key: {e.Key}");
+        if (e.Key == "Enter")
+        {
+            HandleSearch();
+        }
+    }
+    
+    [Inject]
+    private NavigationManager NavigationManager { get; set; } = default!;
 } 

@@ -1,30 +1,102 @@
 nav {
     display: flex;
-    gap: 1rem;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 1rem;
+    background-color: var(--dark-secondary, #1e1e1e);
+    border-bottom: 1px solid var(--dark-border, #333);
+    height: 60px;
+}
+
+.nav-left {
+    display: flex;
+    align-items: center;
+}
+
+.nav-right {
+    display: flex;
+    align-items: center;
 }
 
 .nav-item {
-    background-color: var(--dark-secondary);
-    color: var(--dark-text);
-    padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    border: 1px solid var(--dark-border);
-    transition: all 0.2s ease;
-}
-
-.nav-item:hover {
-    background-color: var(--tab-hover);
-}
-
-.nav-item:active {
-    transform: translateY(1px);
+    margin-right: 1rem;
+    background-color: var(--dark-secondary, #1e1e1e);
+    border-radius: 4px;
+    transition: background-color 0.2s;
 }
 
 .nav-link {
-    color: var(--dark-text);
+    color: var(--dark-text, #e0e0e0);
     text-decoration: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+}
+
+.nav-icon {
+    margin-right: 8px;
+    font-size: 16px;
 }
 
 .nav-link:hover {
-    color: var(--dark-primary);
+    background-color: var(--tab-hover, #2a2a2a);
+    color: var(--dark-primary, #4dabf7);
+}
+
+.nav-link.active {
+    background-color: var(--tab-hover, #2a2a2a);
+    font-weight: bold;
+    color: var(--dark-primary, #4dabf7);
+}
+
+.search-container {
+    position: relative;
+}
+
+.search-container form {
+    display: flex;
+    align-items: center;
+}
+
+.search-input {
+    padding: 8px 12px;
+    border: 1px solid var(--dark-border, #333);
+    border-radius: 4px;
+    font-size: 14px;
+    width: 200px;
+    transition: width 0.3s, border-color 0.2s;
+    background-color: var(--dark-secondary, #1e1e1e);
+    color: var(--dark-text, #e0e0e0);
+}
+
+.search-input::placeholder {
+    color: var(--dark-text-muted, #888);
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: var(--dark-primary, #4dabf7);
+    box-shadow: 0 0 0 0.2rem rgba(77, 171, 247, 0.25);
+    width: 250px;
+}
+
+.search-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 8px;
+    margin-left: 5px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    color: var(--dark-text, #e0e0e0);
+}
+
+.search-button:hover {
+    background-color: var(--tab-hover, #2a2a2a);
+}
+
+.search-icon {
+    font-size: 16px;
 }

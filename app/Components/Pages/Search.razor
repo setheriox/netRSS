@@ -1,0 +1,302 @@
+@page "/search"
+@using Microsoft.AspNetCore.Components
+@using netRSS.Models
+@using System.Data
+@using Dapper
+@using Microsoft.Data.Sqlite
+@using System.IO
+@using System.Text.RegularExpressions
+@rendermode InteractiveServer
+
+<PageTitle>Search Results</PageTitle>
+
+<div class="search-page">
+    <div class="search-form-container">
+        <h2>Search Entries</h2>
+        <div class="search-form">
+            <input 
+                type="text" 
+                class="search-input" 
+                placeholder="Enter search term..." 
+                @bind="SearchInput" 
+                @bind:event="oninput"
+                @onkeydown="HandleKeyDown" 
+            />
+            <button type="button" class="search-button" @onclick="HandleSearch">
+                <span class="search-icon">🔍</span> Search
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(SearchTerm))
+    {
+        <h3>Search Results for "@SearchTerm"</h3>
+        
+        @if (IsSearching)
+        {
+            <div class="search-loading">Searching...</div>
+        }
+        else if (!SearchResults.Any())
+        {
+            <div class="no-results">No results found for "@SearchTerm"</div>
+        }
+        else
+        {
+            <div class="search-results">
+                <div class="result-count">Found @SearchResults.Count results</div>
+                
+                @foreach (var entry in SearchResults)
+                {
+                    <div class="search-result-item">
+                        <div class="result-feed-name" style="background-color: @entry.feed_color">
+                            <span class="feed-name-text">@entry.feed_name</span>
+                        </div>
+                        <div class="result-header">
+                            <div class="result-title @(entry.read == 0 ? "unread" : "")" @onclick="() => ToggleDescription(entry)">
+                                @entry.title
+                            </div>
+                            <div class="result-actions">
+                                <button class="btn-toggle-star @(entry.starred == 1 ? "starred" : "")" @onclick="() => ToggleStarred(entry)" title="Toggle Star">
+                                    @if (entry.starred == 1)
+                                    {
+                                        <span>★</span>
+                                    }
+                                    else
+                                    {
+                                        <span>☆</span>
+                                    }
+                                </button>
+                                <button class="btn-filter" @onclick="() => MarkEntryFiltered(entry)" title="Filter Entry">
+                                    <span>🗑️</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="result-pubdate">@entry.published.ToString("g")</div>
+                        
+                        @if (ExpandedEntryId == entry.id)
+                        {
+                            <div class="result-description">
+                                @if (!string.IsNullOrEmpty(entry.description))
+                                {
+                                    @((MarkupString)HighlightSearchTerm(entry.description))
+                                }
+                                else
+                                {
+                                    <p>No description available.</p>
+                                }
+                                @if (!string.IsNullOrEmpty(entry.link))
+                                {
+                                    <div class="result-read-more">
+                                        <a href="@entry.link" target="_blank" rel="noopener noreferrer">Read More →</a>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? SearchTerm { get; set; } = "";
+    
+    private string SearchInput = "";
+    private List<Entry> SearchResults = new();
+    private bool IsSearching = false;
+    private int? ExpandedEntryId = null;
+    
+    protected override void OnInitialized()
+    {
+        Console.WriteLine($"Search.razor OnInitialized - SearchTerm: {SearchTerm}");
+        if (!string.IsNullOrEmpty(SearchTerm))
+        {
+            SearchInput = SearchTerm;
+            PerformSearch();
+        }
+    }
+    
+    protected override void OnParametersSet()
+    {
+        Console.WriteLine($"Search.razor OnParametersSet - SearchTerm: {SearchTerm}");
+        if (!string.IsNullOrEmpty(SearchTerm))
+        {
+            SearchInput = SearchTerm;
+            PerformSearch();
+        }
+    }
+    
+    private void HandleSearch()
+    {
+        if (string.IsNullOrWhiteSpace(SearchInput)) return;
+        
+        Console.WriteLine($"Search.razor HandleSearch - SearchInput: {SearchInput}");
+        NavigationManager.NavigateTo($"/search?SearchTerm={Uri.EscapeDataString(SearchInput.Trim())}");
+    }
+    
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        Console.WriteLine($"Search.razor HandleKeyDown - Key pressed: {e.Key}");
+        if (e.Key == "Enter")
+        {
+            HandleSearch();
+        }
+    }
+    
+    private void PerformSearch()
+    {
+        if (string.IsNullOrEmpty(SearchTerm)) return;
+        
+        Console.WriteLine($"Search.razor PerformSearch - Searching for: {SearchTerm}");
+        IsSearching = true;
+        StateHasChanged();
+        
+        try
+        {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            
+            Console.WriteLine($"Search.razor PerformSearch - Using database: {dbPath}");
+            
+            using (var connection = new SqliteConnection(connectionString))
+            {
+                connection.Open();
+                
+                // Search in title and description
+                string sql = @"
+                    SELECT e.*, f.name as feed_name, c.color as feed_color 
+                    FROM entries e 
+                    JOIN feeds f ON e.feed_id = f.id 
+                    LEFT JOIN categories c ON f.category_id = c.id
+                    WHERE e.filtered = 0 
+                    AND (
+                        e.title LIKE @SearchPattern 
+                        OR e.description LIKE @SearchPattern
+                    )
+                    ORDER BY e.published DESC 
+                    LIMIT 100";
+                
+                string searchPattern = $"%{SearchTerm}%";
+                Console.WriteLine($"Search.razor PerformSearch - Search pattern: {searchPattern}");
+                
+                SearchResults = connection.Query<Entry>(sql, new { SearchPattern = searchPattern }).ToList();
+                Console.WriteLine($"Search.razor PerformSearch - Found {SearchResults.Count} results");
+                
+                // Process each entry to sanitize description and set default colors
+                foreach (var entry in SearchResults)
+                {
+                    if (string.IsNullOrEmpty(entry.feed_color))
+                    {
+                        entry.feed_color = "#888888";
+                    }
+                    entry.description = SanitizeDescription(entry.description);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error performing search: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+        }
+        finally
+        {
+            IsSearching = false;
+            StateHasChanged();
+        }
+    }
+    
+    private string SanitizeDescription(string? description)
+    {
+        if (string.IsNullOrEmpty(description)) return "";
+        
+        // Remove iframes using regex
+        description = Regex.Replace(description, @"<iframe[^>]*>.*?</iframe>", "", RegexOptions.Singleline);
+        description = Regex.Replace(description, @"<iframe[^>]*/>", "", RegexOptions.Singleline);
+        
+        return description;
+    }
+    
+    private string HighlightSearchTerm(string text)
+    {
+        if (string.IsNullOrEmpty(SearchTerm)) return text;
+        
+        // Escape special regex characters in the search term
+        string escapedTerm = Regex.Escape(SearchTerm);
+        
+        // Replace the search term with a highlighted version
+        return Regex.Replace(
+            text, 
+            $"({escapedTerm})", 
+            "<mark>$1</mark>", 
+            RegexOptions.IgnoreCase
+        );
+    }
+    
+    private void ToggleDescription(Entry entry)
+    {
+        if (ExpandedEntryId == entry.id)
+        {
+            ExpandedEntryId = null;
+        }
+        else
+        {
+            ExpandedEntryId = entry.id;
+        }
+        StateHasChanged();
+    }
+    
+    private void ToggleStarred(Entry entry)
+    {
+        try
+        {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            using (var connection = new SqliteConnection(connectionString))
+            {
+                connection.Open();
+                string sql = "UPDATE entries SET starred = @starred WHERE id = @id";
+                int newStarredStatus = entry.starred == 1 ? 0 : 1;
+                connection.Execute(sql, new { starred = newStarredStatus, id = entry.id });
+                entry.starred = newStarredStatus;
+                Console.WriteLine($"Toggled starred status for entry {entry.id} to {newStarredStatus}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error toggling starred status: {ex.Message}");
+        }
+        StateHasChanged();
+    }
+    
+    private void MarkEntryFiltered(Entry entry)
+    {
+        try
+        {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            using (var connection = new SqliteConnection(connectionString))
+            {
+                connection.Open();
+                string sql = "UPDATE entries SET filtered = 1, manually_filtered = 1 WHERE id = @id";
+                connection.Execute(sql, new { id = entry.id });
+                entry.filtered = 1;
+                entry.manually_filtered = true;
+                Console.WriteLine($"Marked entry {entry.id} as manually filtered");
+                
+                // Immediately remove the entry from the UI
+                SearchResults.Remove(entry);
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error marking entry as filtered: {ex.Message}");
+        }
+    }
+    
+    [Inject]
+    private NavigationManager NavigationManager { get; set; } = default!;
+} 
