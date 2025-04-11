@@ -5,6 +5,7 @@
     height: 100%; /* Fill available height in grid container */
     overflow-y: auto;
     position: relative;
+    margin-top: 10px;
 }
 
 .feed-sidebar-header {

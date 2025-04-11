@@ -26,6 +26,12 @@
     private bool ShowUnreadOnly = false;
     private bool ShowStarredOnly = false;
     
+    // Pagination properties
+    private int CurrentPage = 1;
+    private int PageSize = 50;
+    private int TotalEntries = 0;
+    private int TotalPages => (int)Math.Ceiling(TotalEntries / (double)PageSize);
+    
     // Change from HashSet to single integer to track only one expanded entry
     private int? ExpandedEntryId = null;
     
@@ -77,6 +83,7 @@
         SelectedCategory = null;
         FilterTitle = feed.name;
         FilterColor = "";
+        CurrentPage = 1;
         LoadEntries();
         StateHasChanged();
     }
@@ -87,6 +94,7 @@
         SelectedFeed = null;
         FilterTitle = category.name;
         FilterColor = category.color;
+        CurrentPage = 1;
         LoadEntries();
         StateHasChanged();
     }
@@ -94,6 +102,7 @@
     public void SetUnreadFilter(bool showUnreadOnly) {
         ShowUnreadOnly = showUnreadOnly;
         FilterTitle = showUnreadOnly ? "Unread Entries" : "All Entries";
+        CurrentPage = 1;
         LoadEntries();
         StateHasChanged();
     }
@@ -101,6 +110,7 @@
     public void SetStarredFilter(bool showStarredOnly) {
         ShowStarredOnly = showStarredOnly;
         FilterTitle = showStarredOnly ? "Starred Entries" : "All Entries";
+        CurrentPage = 1;
         LoadEntries();
         StateHasChanged();
     }
@@ -124,6 +134,7 @@
                 connection.Open();
                 
                 string sql;
+                string countSql;
                 object? param = null;
                 
                 if (SelectedFeed != null) {
@@ -135,8 +146,19 @@
                             " + (ShowUnreadOnly ? "AND e.read = 0" : "") + 
                             (ShowStarredOnly ? "AND e.starred = 1" : "") + @"
                             ORDER BY e.published DESC 
-                            LIMIT 100";
-                    param = new { FeedId = SelectedFeed.id };
+                            LIMIT @PageSize OFFSET @Offset";
+                            
+                    countSql = @"SELECT COUNT(*) 
+                                FROM entries e 
+                                WHERE e.feed_id = @FeedId AND e.filtered = 0
+                                " + (ShowUnreadOnly ? "AND e.read = 0" : "") + 
+                                (ShowStarredOnly ? "AND e.starred = 1" : "");
+                                
+                    param = new { 
+                        FeedId = SelectedFeed.id,
+                        PageSize = PageSize,
+                        Offset = (CurrentPage - 1) * PageSize
+                    };
                     Console.WriteLine($"SQL filter by feed: {SelectedFeed.name} (ID: {SelectedFeed.id})");
                 } 
                 else if (SelectedCategory != null) {
@@ -148,8 +170,20 @@
                             " + (ShowUnreadOnly ? "AND e.read = 0" : "") + 
                             (ShowStarredOnly ? "AND e.starred = 1" : "") + @"
                             ORDER BY e.published DESC 
-                            LIMIT 100";
-                    param = new { CategoryId = SelectedCategory.id };
+                            LIMIT @PageSize OFFSET @Offset";
+                            
+                    countSql = @"SELECT COUNT(*) 
+                                FROM entries e 
+                                JOIN feeds f ON e.feed_id = f.id 
+                                WHERE f.category_id = @CategoryId AND e.filtered = 0
+                                " + (ShowUnreadOnly ? "AND e.read = 0" : "") + 
+                                (ShowStarredOnly ? "AND e.starred = 1" : "");
+                                
+                    param = new { 
+                        CategoryId = SelectedCategory.id,
+                        PageSize = PageSize,
+                        Offset = (CurrentPage - 1) * PageSize
+                    };
                     Console.WriteLine($"SQL filter by category: {SelectedCategory.name} (ID: {SelectedCategory.id})");
                 } 
                 else {
@@ -161,10 +195,25 @@
                             " + (ShowUnreadOnly ? "AND e.read = 0" : "") + 
                             (ShowStarredOnly ? "AND e.starred = 1" : "") + @"
                             ORDER BY e.published DESC 
-                            LIMIT 100";
+                            LIMIT @PageSize OFFSET @Offset";
+                            
+                    countSql = @"SELECT COUNT(*) 
+                                FROM entries e 
+                                WHERE e.filtered = 0
+                                " + (ShowUnreadOnly ? "AND e.read = 0" : "") + 
+                                (ShowStarredOnly ? "AND e.starred = 1" : "");
+                                
+                    param = new { 
+                        PageSize = PageSize,
+                        Offset = (CurrentPage - 1) * PageSize
+                    };
                     Console.WriteLine("SQL no filter (all entries)");
                 }
                 
+                // Get total count first
+                TotalEntries = connection.ExecuteScalar<int>(countSql, param);
+                
+                // Then get the paginated entries
                 Entries = connection.Query<Entry>(sql, param).ToList();
                 
                 // Process each entry to sanitize description and set default colors
@@ -175,7 +224,7 @@
                     entry.description = SanitizeDescription(entry.description);
                 }
                 
-                Console.WriteLine($"Loaded {Entries.Count} entries with filter: {FilterTitle}");
+                Console.WriteLine($"Loaded {Entries.Count} entries with filter: {FilterTitle} (Page {CurrentPage} of {TotalPages})");
             }
         }
         catch (Exception ex) {
@@ -232,6 +281,7 @@
         SelectedCategory = null;
         FilterTitle = "All Entries";
         FilterColor = "";
+        CurrentPage = 1;
         LoadEntries();
         StateHasChanged();
     }
@@ -343,65 +393,110 @@
         StateHasChanged();
     }
     */
-}
 
-<div class="feed-entries">
-    <h3>
-        <span style="@(string.IsNullOrEmpty(FilterColor) ? "" : $"color: {FilterColor}")">
-            @FilterTitle (@Entries.Count)
-        </span>
-        @if (SelectedFeed != null || SelectedCategory != null) {
-            <button class="btn-clear-filter" @onclick="RemoveFeedFilter">Clear Filter</button>
-        }
-    </h3>
-    
-    @if (!Entries.Any()) {
-        <p>No entries found.</p>
-    } else {
-        @foreach (var entry in Entries) {
-            <div class="rss-entry"> 
-                <div class="rss-entry-read-status">
-                    <button class="btn-toggle-read" @onclick="() => ToggleRead(entry)">
-                        @if (entry.read == 1) {
-                            <span>&check;</span>
-                        } else {
-                            <span>&#9675;</span>
-                        }
-                    </button>
-                    <button class="btn-toggle-star @(entry.starred == 1 ? "starred" : "")" @onclick="() => ToggleStarred(entry)">
-                        <span>★</span>
-                    </button>
-                </div>
-                <div class="rss-entry-feed-name" style="background-color: @entry.feed_color">
-                    <span class="feed-name-text">@entry.feed_name</span>
-                    @if (SelectedFeed != null || SelectedCategory != null) {
-                        <span class="feed-badge-remove" @onclick:stopPropagation="true" @onclick="() => RemoveFeedFilter()">×</span>
-                    }
-                </div>
-                <div class="rss-entry-title @(entry.read == 0 ? "unread" : "")" @onclick="() => ToggleDescription(entry)">
-                    @entry.title
-                </div>
-                <div class="rss-entry-pubdate">@entry.published.ToString("g")</div>
-                <div class="rss-entry-filtered" @onclick:stopPropagation="true" @onclick="() => MarkEntryFiltered(entry)">
-                    <span>X</span>
-                </div>
-            </div>
-            @if (ExpandedEntryId == entry.id) {
-                <div class="rss-entry-description" style="display: block;height: fit-content;">
-                    @if (!string.IsNullOrEmpty(entry.description)) {
-                        @((MarkupString)entry.description)
-                    } else {
-                        <p>No description available.</p>
-                    }
-                    @if (!string.IsNullOrEmpty(entry.link)) {
-                        <div class="rss-entry-read-more">
-                            <a href="@entry.link" target="_blank" rel="noopener noreferrer">Read More →</a>
-                        </div>
-                    }
-                </div>
-            }
+    private void GoToPage(int page) {
+        if (page >= 1 && page <= TotalPages) {
+            CurrentPage = page;
+            LoadEntries();
         }
     }
+
+    private void NextPage() {
+        if (CurrentPage < TotalPages) {
+            GoToPage(CurrentPage + 1);
+        }
+    }
+
+    private void PreviousPage() {
+        if (CurrentPage > 1) {
+            GoToPage(CurrentPage - 1);
+        }
+    }
+}
+
+<div class="feed-content">
+    <div class="feed-entries">
+        <div class="feed-entries-header">
+        
+            @if (TotalPages > 1) {
+                <div class="pagination">
+                    <button class="btn-page" @onclick="PreviousPage" disabled="@(CurrentPage == 1)">
+                        ← Previous
+                    </button>
+                    <span class="page-info">Page @CurrentPage of @TotalPages</span>
+                    <button class="btn-page" @onclick="NextPage" disabled="@(CurrentPage == TotalPages)">
+                        Next →
+                    </button>
+                </div>
+            }
+            <h3>
+                <span style="@(string.IsNullOrEmpty(FilterColor) ? "" : $"color: {FilterColor}")">
+                    @FilterTitle (@TotalEntries)
+                </span>
+                @if (SelectedFeed != null || SelectedCategory != null) {
+                    <button class="btn-clear-filter" @onclick="RemoveFeedFilter">Clear Filter</button>
+                }
+            </h3>
+            
+        </div>
+        
+        <div class="entries-list">
+            @if (!Entries.Any()) {
+                <p>No entries found.</p>
+            } else {
+                @foreach (var entry in Entries) {
+                    <div class="rss-entry"> 
+                        <div class="rss-entry-read-status">
+                            <button class="btn-toggle-read" @onclick="() => ToggleRead(entry)">
+                                @if (entry.read == 1) {
+                                    <span>&check;</span>
+                                } else {
+                                    <span>&#9675;</span>
+                                }
+                            </button>
+                            <button class="btn-toggle-star @(entry.starred == 1 ? "starred" : "")" @onclick="() => ToggleStarred(entry)" title="Toggle Star">
+                                @if (entry.starred == 1)
+                                {
+                                    <span>★</span>
+                                }
+                                else
+                                {
+                                    <span>☆</span>
+                                }
+                            </button>
+                        </div>
+                        <div class="rss-entry-feed-name" style="background-color: @entry.feed_color">
+                            <span class="feed-name-text">@entry.feed_name</span>
+                            @if (SelectedFeed != null || SelectedCategory != null) {
+                                <span class="feed-badge-remove" @onclick:stopPropagation="true" @onclick="() => RemoveFeedFilter()">×</span>
+                            }
+                        </div>
+                        <div class="rss-entry-title @(entry.read == 0 ? "unread" : "")" @onclick="() => ToggleDescription(entry)">
+                            @entry.title
+                        </div>
+                        <div class="rss-entry-pubdate">@entry.published.ToString("g")</div>
+                        <div class="rss-entry-filtered" @onclick:stopPropagation="true" @onclick="() => MarkEntryFiltered(entry)">
+                            <span>🗑️</span>
+                        </div>
+                    </div>
+                    @if (ExpandedEntryId == entry.id) {
+                        <div class="rss-entry-description" style="display: block;height: fit-content;">
+                            @if (!string.IsNullOrEmpty(entry.description)) {
+                                @((MarkupString)entry.description)
+                            } else {
+                                <p>No description available.</p>
+                            }
+                            @if (!string.IsNullOrEmpty(entry.link)) {
+                                <div class="rss-entry-read-more">
+                                    <a href="@entry.link" target="_blank" rel="noopener noreferrer">Read More →</a>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            }
+        </div>
+    </div>
 </div>
 
 @*  // Alternative modal state implementation

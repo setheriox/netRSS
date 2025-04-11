@@ -228,9 +228,9 @@
                 }
             }
             
-            // Re-order categories to ensure "Unsorted" is last
+            // Re-order categories to ensure "Uncategorized" is last
             Categories = Categories
-                .OrderBy(c => c.name.Equals("Unsorted", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .OrderBy(c => c.name.Equals("Uncategorized", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
                 .ThenBy(c => c.name)
                 .ToList();
         }

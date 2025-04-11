@@ -109,16 +109,6 @@
     private bool IsSearching = false;
     private int? ExpandedEntryId = null;
     
-    protected override void OnInitialized()
-    {
-        Console.WriteLine($"Search.razor OnInitialized - SearchTerm: {SearchTerm}");
-        if (!string.IsNullOrEmpty(SearchTerm))
-        {
-            SearchInput = SearchTerm;
-            PerformSearch();
-        }
-    }
-    
     protected override void OnParametersSet()
     {
         Console.WriteLine($"Search.razor OnParametersSet - SearchTerm: {SearchTerm}");

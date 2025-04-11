@@ -35,3 +35,4 @@ artifacts/
 
 # Database files
 database/rss.db
+app/Data/rss.db

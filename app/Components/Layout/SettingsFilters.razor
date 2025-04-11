@@ -204,6 +204,8 @@
     {
         LoadFilters();
         LoadFilteredEntries();
+        // Apply all existing filters to entries when component initializes
+        ApplyFilters();
     }
 
     private void LoadFilters()
@@ -215,26 +217,18 @@
         try {
             using var connection = DbConnectionFactory.CreateConnection();
             
-            // Load filters with match counts
-            string sql = @"
-                SELECT f.*, 
-                       (SELECT COUNT(*) FROM entries e 
-                        WHERE (f.title = 1 AND e.title LIKE @LikePattern)
-                           OR (f.description = 1 AND e.description LIKE @LikePattern)
-                       ) as match_count
-                FROM filters f
-                ORDER BY f.term";
-            
-            // Get all filters first
+            // First get all filters
             var filters = connection.Query<ContentFilter>("SELECT * FROM filters ORDER BY term").ToList();
             
-            // Then for each filter, calculate match count with proper pattern
+            // Then calculate match counts for each filter using its specific settings
             foreach (var filter in filters)
             {
                 // Convert stored % pattern back to user-friendly * for display
-                filter.DisplayTerm = filter.Term.Replace("%", "*");
+                filter.DisplayTerm = !string.IsNullOrEmpty(filter.DisplayTerm) 
+                    ? filter.DisplayTerm 
+                    : filter.Term.Replace("%", "*");
                 
-                // Calculate match count
+                // Calculate match count using the filter's own settings
                 string pattern = filter.Term;
                 int matchCount = connection.ExecuteScalar<int>(@"
                     SELECT COUNT(*) FROM entries e 
@@ -248,6 +242,8 @@
                 
                 filter.MatchCount = matchCount;
                 Filters.Add(filter);
+                
+                Console.WriteLine($"Filter '{filter.DisplayTerm}' matches {matchCount} entries (Pattern: {pattern}, Title: {filter.Title}, Body: {filter.Description})");
             }
         }
         catch (Exception ex) {
@@ -267,11 +263,13 @@
                 SELECT e.*, f.name as feed_name, f.url as feed_url, c.color as feed_color,
                        CASE 
                            WHEN e.manually_filtered = 1 THEN 'Manually filtered'
+                           WHEN e.filter_reason IS NULL OR e.filter_reason = '' THEN 'Unknown filter'
                            ELSE e.filter_reason
-                       END as applied_filters
+                       END as applied_filters,
+                       e.manually_filtered
                 FROM entries e
                 JOIN feeds f ON e.feed_id = f.id
-                JOIN categories c ON f.category_id = c.id
+                LEFT JOIN categories c ON f.category_id = c.id
                 WHERE e.filtered = 1
                 ORDER BY e.published DESC";
             
@@ -301,20 +299,45 @@
     private void ApplyFilters()
     {
         try {
+            Console.WriteLine("Starting to apply filters...");
             using var connection = DbConnectionFactory.CreateConnection();
             
-            // Apply each filter individually to avoid pattern mismatch
+            // First, clear all non-manual filters
+            string clearSql = @"
+                UPDATE entries 
+                SET filtered = 0, filter_reason = NULL 
+                WHERE manually_filtered = 0";
+            int clearedRows = connection.Execute(clearSql);
+            Console.WriteLine($"Cleared filtering from {clearedRows} entries");
+            
+            // Apply each filter individually and collect reasons
             foreach (var filter in Filters)
             {
                 string pattern = filter.Term;
-                string displayPattern = string.IsNullOrEmpty(filter.DisplayTerm) ? filter.Term : filter.DisplayTerm;
+                // Use the display term if available, otherwise use the original term without SQL wildcards
+                string displayPattern = !string.IsNullOrEmpty(filter.DisplayTerm) 
+                    ? filter.DisplayTerm 
+                    : pattern.TrimStart('%').TrimEnd('%');
                 
-                // Apply filters only to entries that aren't manually filtered
+                Console.WriteLine($"Applying filter: {displayPattern} (SQL Pattern: {pattern})");
+                Console.WriteLine($"Title: {filter.Title}, Description: {filter.Description}");
+                
+                // Debug check for the pattern with a direct SQL count
+                int matchesFound = connection.ExecuteScalar<int>(
+                    "SELECT COUNT(*) FROM entries WHERE title LIKE @Pattern", 
+                    new { Pattern = pattern }
+                );
+                Console.WriteLine($"Direct SQL check - Entries with '{pattern}' in title: {matchesFound}");
+                
+                // Apply filters and update filter_reason
                 string applySql = @"
                     UPDATE entries
-                    SET filtered = 1, filter_reason = @Reason
-                    WHERE filtered = 0
-                    AND manually_filtered = 0
+                    SET filtered = 1,
+                        filter_reason = CASE 
+                            WHEN filter_reason IS NULL OR filter_reason = '' THEN @Reason
+                            ELSE filter_reason || ', ' || @Reason
+                        END
+                    WHERE manually_filtered = 0
                     AND ((@Title = 1 AND title LIKE @Pattern)
                        OR (@Description = 1 AND description LIKE @Pattern))";
                 
@@ -325,11 +348,16 @@
                     Reason = displayPattern
                 });
                 
-                Console.WriteLine($"Applied filter '{filter.Term}': {affectedRows} entries marked as filtered");
+                Console.WriteLine($"Applied filter '{displayPattern}' (Pattern: {pattern}, Title: {filter.Title}, Body: {filter.Description}): {affectedRows} entries filtered");
             }
             
-            // Reload filtered entries
+            // Check how many entries are now filtered
+            int totalFiltered = connection.ExecuteScalar<int>("SELECT COUNT(*) FROM entries WHERE filtered = 1");
+            Console.WriteLine($"Total filtered entries after applying all filters: {totalFiltered}");
+            
+            // Reload filtered entries and update match counts
             LoadFilteredEntries();
+            LoadFilters();
         }
         catch (Exception ex) {
             Console.WriteLine($"ERROR applying filters: {ex.Message}\n{ex.StackTrace}");
@@ -342,7 +370,7 @@
         _currentFilter = null;
         _filterTerm = string.Empty;
         _filterTitle = true;
-        _filterDescription = true;
+        _filterDescription = false;
         _filterError = string.Empty;
         _showEditModal = true;
     }
@@ -395,30 +423,44 @@
         try {
             // Convert user-friendly * wildcards to SQL % wildcards
             string sqlPattern = ConvertToSqlPattern(_filterTerm);
+            string displayPattern = _filterTerm; // Keep the original user input for display
+            
+            Console.WriteLine($"Saving filter: Display='{displayPattern}', SQL Pattern='{sqlPattern}'");
+            Console.WriteLine($"Title: {_filterTitle}, Description: {_filterDescription}");
             
             using var connection = DbConnectionFactory.CreateConnection();
             
             if (_isNewFilter) {
-                string sql = @"INSERT INTO filters (term, title, description) 
-                             VALUES (@Term, @Title, @Description)";
+                string sql = @"INSERT INTO filters (term, display_term, title, description) 
+                             VALUES (@Term, @DisplayTerm, @Title, @Description)";
+                // Be explicit about integer values for SQLite boolean fields
+                int titleValue = _filterTitle ? 1 : 0;
+                int descriptionValue = _filterDescription ? 1 : 0;
+                
                 connection.Execute(sql, new { 
-                    Term = sqlPattern, 
-                    Title = _filterTitle ? 1 : 0, 
-                    Description = _filterDescription ? 1 : 0 
+                    Term = sqlPattern,
+                    DisplayTerm = displayPattern,
+                    Title = titleValue, 
+                    Description = descriptionValue 
                 });
-                Console.WriteLine($"Added new filter: {_filterTerm} -> {sqlPattern} (Title: {_filterTitle}, Body: {_filterDescription})");
+                Console.WriteLine($"Added new filter: {displayPattern} -> {sqlPattern} (Title: {titleValue}, Body: {descriptionValue})");
             }
             else if (_currentFilter != null) {
                 string sql = @"UPDATE filters 
-                             SET term = @Term, title = @Title, description = @Description 
+                             SET term = @Term, display_term = @DisplayTerm, title = @Title, description = @Description 
                              WHERE id = @Id";
+                // Be explicit about integer values for SQLite boolean fields
+                int titleValue = _filterTitle ? 1 : 0;
+                int descriptionValue = _filterDescription ? 1 : 0;
+                
                 connection.Execute(sql, new { 
-                    Term = sqlPattern, 
-                    Title = _filterTitle ? 1 : 0, 
-                    Description = _filterDescription ? 1 : 0,
+                    Term = sqlPattern,
+                    DisplayTerm = displayPattern,
+                    Title = titleValue, 
+                    Description = descriptionValue,
                     Id = _currentFilter.Id 
                 });
-                Console.WriteLine($"Updated filter: {_filterTerm} -> {sqlPattern} (Title: {_filterTitle}, Body: {_filterDescription})");
+                Console.WriteLine($"Updated filter: {displayPattern} -> {sqlPattern} (Title: {titleValue}, Body: {descriptionValue})");
             }
 
             // Apply filters to entries

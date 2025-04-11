@@ -241,6 +241,29 @@ void EnsureDatabaseExists(string dbPath)
                 WHERE id NOT IN (SELECT feed_id FROM feed_status)
             ");
         }
+
+        // Check if display_term column exists in filters table
+        try
+        {
+            // Try to select the display_term column - this will fail if it doesn't exist
+            connection.ExecuteScalar<string>("SELECT display_term FROM filters LIMIT 1");
+        }
+        catch (Exception)
+        {
+            // If the query fails, the column doesn't exist, so add it
+            connection.Execute("ALTER TABLE filters ADD COLUMN display_term TEXT");
+            
+            // Update existing filters to set display_term to the user-friendly version of term
+            connection.Execute(@"
+                UPDATE filters 
+                SET display_term = 
+                    CASE 
+                        WHEN term LIKE '%\%%' THEN TRIM(term, '%')
+                        ELSE term
+                    END
+            ");
+            Console.WriteLine("Added display_term column to filters table");
+        }
     }
 }
 
