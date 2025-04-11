@@ -21,6 +21,9 @@ builder.Services.AddSingleton<IDbConnectionFactory>(sp =>
     return new SqliteConnectionFactory($"Data Source={dbPath}");
 });
 
+// Register feed validation service
+builder.Services.AddScoped<netRSS.Services.FeedValidationService>();
+
 // Register the RSS Background Service
 builder.Services.AddHostedService<RssBackgroundService>();
 
@@ -85,6 +88,17 @@ void EnsureDatabaseExists(string dbPath)
                 FOREIGN KEY (category_id) REFERENCES categories (id)
             );
 
+            CREATE TABLE feed_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feed_id INTEGER NOT NULL,
+                status TEXT DEFAULT 'ok',
+                error_message TEXT,
+                last_checked DATETIME DEFAULT CURRENT_TIMESTAMP,
+                fail_count INTEGER DEFAULT 0,
+                is_critical BOOLEAN DEFAULT 0,
+                FOREIGN KEY (feed_id) REFERENCES feeds (id) ON DELETE CASCADE
+            );
+
             CREATE TABLE entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -110,6 +124,20 @@ void EnsureDatabaseExists(string dbPath)
                 entry_id INTEGER PRIMARY KEY,
                 FOREIGN KEY (entry_id) REFERENCES entries (id) ON DELETE CASCADE
             );
+            
+            CREATE TABLE settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                type TEXT DEFAULT 'string',
+                description TEXT
+            );
+            
+            -- Insert default settings
+            INSERT INTO settings (key, value, type, description) 
+            VALUES ('font_family', 'Verdana, sans-serif', 'string', 'Font family for the application');
+            
+            INSERT INTO settings (key, value, type, description) 
+            VALUES ('font_size', '8', 'number', 'Base font size in points');
         ");
     }
     else
@@ -141,6 +169,77 @@ void EnsureDatabaseExists(string dbPath)
             // If the query fails, the column doesn't exist, so add it
             connection.Execute("ALTER TABLE entries ADD COLUMN manually_filtered INTEGER DEFAULT 0");
             Console.WriteLine("Added manually_filtered column to entries table");
+        }
+        
+        // Check if filter_reason column exists in entries table
+        try
+        {
+            // Try to select the filter_reason column - this will fail if it doesn't exist
+            connection.ExecuteScalar<string>("SELECT filter_reason FROM entries LIMIT 1");
+        }
+        catch (Exception)
+        {
+            // If the query fails, the column doesn't exist, so add it
+            connection.Execute("ALTER TABLE entries ADD COLUMN filter_reason TEXT DEFAULT NULL");
+            Console.WriteLine("Added filter_reason column to entries table");
+        }
+        
+        // Check if settings table exists
+        try
+        {
+            // Try to select from settings table - this will fail if it doesn't exist
+            connection.ExecuteScalar<string>("SELECT key FROM settings LIMIT 1");
+        }
+        catch (Exception)
+        {
+            // If the query fails, the table doesn't exist, so create it
+            connection.Execute(@"
+                CREATE TABLE settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    type TEXT DEFAULT 'string',
+                    description TEXT
+                );
+                
+                -- Insert default settings
+                INSERT INTO settings (key, value, type, description) 
+                VALUES ('font_family', 'Verdana, sans-serif', 'string', 'Font family for the application');
+                
+                INSERT INTO settings (key, value, type, description) 
+                VALUES ('font_size', '8', 'number', 'Base font size in points');
+            ");
+            Console.WriteLine("Created settings table with default values");
+        }
+
+        // Check if feed_status table exists
+        try 
+        {
+            // Try to select from feed_status table - this will fail if it doesn't exist
+            connection.ExecuteScalar<string>("SELECT status FROM feed_status LIMIT 1");
+        }
+        catch (Exception)
+        {
+            // If the query fails, the table doesn't exist, so create it
+            connection.Execute(@"
+                CREATE TABLE feed_status (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    feed_id INTEGER NOT NULL,
+                    status TEXT DEFAULT 'ok',
+                    error_message TEXT,
+                    last_checked DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    fail_count INTEGER DEFAULT 0,
+                    is_critical BOOLEAN DEFAULT 0,
+                    FOREIGN KEY (feed_id) REFERENCES feeds (id) ON DELETE CASCADE
+                );
+            ");
+            Console.WriteLine("Created feed_status table");
+            
+            // Initialize status for all existing feeds
+            connection.Execute(@"
+                INSERT INTO feed_status (feed_id, status)
+                SELECT id, 'ok' FROM feeds 
+                WHERE id NOT IN (SELECT feed_id FROM feed_status)
+            ");
         }
     }
 }

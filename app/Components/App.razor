@@ -7,7 +7,21 @@
     <base href="/" />
     <link rel="stylesheet" href="app.css" />
     <link rel="stylesheet" href="netRSS.styles.css" />
+    <!-- Initial font styles to prevent flashing -->
+    <style>
+        :root {
+            --app-font-family: Verdana, sans-serif;
+            --app-font-size: 8pt;
+        }
+        
+        body, input, button, select, textarea {
+            font-family: var(--app-font-family);
+            font-size: var(--app-font-size);
+            transition: font-family 0.3s ease, font-size 0.3s ease;
+        }
+    </style>
     <HeadOutlet />
+    <netRSS.Components.Layout.FontStyleProvider />
 </head>
 
 <body>

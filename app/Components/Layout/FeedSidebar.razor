@@ -256,7 +256,7 @@
                 }
             </button>
             <button class="btn-view-starred @(ShowStarredOnly ? "active" : "")" @onclick="ToggleStarredView">
-                <span>Starred</span>
+                <span class="star-icon">&#9733;</span> <span>Starred Items</span>
             </button>
         </div>
         @if (Categories == null || !Categories.Any()) {
@@ -267,10 +267,10 @@
                     <div class="feed-sidebar-category-header" @onclick="@(e => CategorySelected(category))">
                         <div class="feed-sidebar-category-name" style="color: @category.color">@category.name</div>
                         <div class="feed-sidebar-category-counts">
-                            <span class="feed-count">@category.FeedCount feeds</span>
+                            <span class="feed-count" title="@category.FeedCount feeds">@category.FeedCount</span>
                             @if (category.UnreadCount > 0)
                             {
-                                <span class="unread-count">@category.UnreadCount unread</span>
+                                <span class="unread-count" title="@category.UnreadCount unread">(@category.UnreadCount)</span>
                                 <button class="btn-mark-read" 
                                         title="Mark category as read" 
                                         @onclick="@(() => MarkCategoryAsRead(category))" 

@@ -28,6 +28,11 @@
             Filters
         </NavLink>
         </div>
+        <div class="@(CurrentTab == "import" ? "settings-tab-container-active" : "settings-tab-container")">
+        <NavLink class="tab" href="settings?tab=import">
+            Import
+        </NavLink>
+        </div>
     </div>
     
     <div class="settings-content">
@@ -43,6 +48,9 @@
                 break;
             case "filters":
                 <SettingsFilters />
+                break;
+            case "import":
+                <SettingsImport />
                 break;
             default:
                 <SettingsGeneral />

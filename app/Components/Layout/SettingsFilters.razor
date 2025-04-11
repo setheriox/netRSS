@@ -14,6 +14,17 @@
         </button>
     </div>
 
+    <div class="filters-description">
+        <p>Filters help you automatically hide content that matches specific terms or patterns. Any item that matches a filter will be hidden from your main feed view.</p>
+        <p>Filter examples:</p>
+        <ul>
+            <li><code>crypto</code> - Will match any content containing "crypto"</li>
+            <li><code>crypto*</code> - Will match "cryptocurrency", "cryptomining", etc.</li>
+            <li><code>*coin</code> - Will match "bitcoin", "altcoin", etc.</li>
+            <li><code>"breaking news"</code> - Will match the exact phrase "breaking news"</li>
+        </ul>
+    </div>
+
     @if (IsLoading) {
         <div class="loading-indicator">Loading filters...</div>
     } else if (Filters.Count == 0) {
@@ -39,7 +50,16 @@
                 <tbody>
                     @foreach (var filter in Filters) {
                         <tr>
-                            <td>@filter.Term</td>
+                            <td>
+                                @if (string.IsNullOrEmpty(filter.DisplayTerm))
+                                {
+                                    @filter.Term
+                                }
+                                else
+                                {
+                                    @filter.DisplayTerm
+                                }
+                            </td>
                             <td>@filter.FilterType</td>
                             <td>
                                 <span class="match-count">@filter.MatchCount</span>
@@ -135,7 +155,16 @@
             <div class="modal-body">
                 <p>Are you sure you want to delete this filter?</p>
                 <div class="filter-preview">
-                    <p><strong>Filter Term:</strong> @_filterToDelete?.Term</p>
+                    <p><strong>Filter Term:</strong> 
+                        @if (!string.IsNullOrEmpty(_filterToDelete?.DisplayTerm))
+                        {
+                            @_filterToDelete.DisplayTerm
+                        }
+                        else
+                        {
+                            @_filterToDelete?.Term
+                        }
+                    </p>
                     <p><strong>Type:</strong> @_filterToDelete?.FilterType</p>
                     @if (_filterToDelete?.MatchCount > 0) {
                         <div class="warning-message">
@@ -190,13 +219,36 @@
             string sql = @"
                 SELECT f.*, 
                        (SELECT COUNT(*) FROM entries e 
-                        WHERE (f.title = 1 AND e.title LIKE '%' || f.term || '%')
-                           OR (f.description = 1 AND e.description LIKE '%' || f.term || '%')
+                        WHERE (f.title = 1 AND e.title LIKE @LikePattern)
+                           OR (f.description = 1 AND e.description LIKE @LikePattern)
                        ) as match_count
                 FROM filters f
                 ORDER BY f.term";
             
-            Filters = connection.Query<ContentFilter>(sql).ToList();
+            // Get all filters first
+            var filters = connection.Query<ContentFilter>("SELECT * FROM filters ORDER BY term").ToList();
+            
+            // Then for each filter, calculate match count with proper pattern
+            foreach (var filter in filters)
+            {
+                // Convert stored % pattern back to user-friendly * for display
+                filter.DisplayTerm = filter.Term.Replace("%", "*");
+                
+                // Calculate match count
+                string pattern = filter.Term;
+                int matchCount = connection.ExecuteScalar<int>(@"
+                    SELECT COUNT(*) FROM entries e 
+                    WHERE ((@Title = 1 AND e.title LIKE @Pattern)
+                       OR (@Description = 1 AND e.description LIKE @Pattern))
+                ", new { 
+                    Title = filter.Title ? 1 : 0, 
+                    Description = filter.Description ? 1 : 0,
+                    Pattern = pattern
+                });
+                
+                filter.MatchCount = matchCount;
+                Filters.Add(filter);
+            }
         }
         catch (Exception ex) {
             LoadError = $"Error loading filters: {ex.Message}";
@@ -212,24 +264,14 @@
         try {
             using var connection = DbConnectionFactory.CreateConnection();
             string sql = @"
-                WITH EntryFilters AS (
-                    SELECT e.id as entry_id, GROUP_CONCAT(f.term) as filter_terms
-                    FROM entries e
-                    JOIN filters f ON 
-                        (f.title = 1 AND e.title LIKE '%' || f.term || '%')
-                        OR (f.description = 1 AND e.description LIKE '%' || f.term || '%')
-                    WHERE e.filtered = 1 AND e.manually_filtered = 0
-                    GROUP BY e.id
-                )
                 SELECT e.*, f.name as feed_name, f.url as feed_url, c.color as feed_color,
                        CASE 
                            WHEN e.manually_filtered = 1 THEN 'Manually filtered'
-                           ELSE COALESCE(ef.filter_terms, 'No matching filters')
+                           ELSE e.filter_reason
                        END as applied_filters
                 FROM entries e
                 JOIN feeds f ON e.feed_id = f.id
                 JOIN categories c ON f.category_id = c.id
-                LEFT JOIN EntryFilters ef ON e.id = ef.entry_id
                 WHERE e.filtered = 1
                 ORDER BY e.published DESC";
             
@@ -261,20 +303,30 @@
         try {
             using var connection = DbConnectionFactory.CreateConnection();
             
-            // Apply filters only to entries that aren't manually filtered
-            string applySql = @"
-                UPDATE entries
-                SET filtered = 1
-                WHERE filtered = 0
-                AND manually_filtered = 0
-                AND EXISTS (
-                    SELECT 1 FROM filters f
-                    WHERE (f.title = 1 AND entries.title LIKE '%' || f.term || '%')
-                       OR (f.description = 1 AND entries.description LIKE '%' || f.term || '%')
-                )";
-            
-            int affectedRows = connection.Execute(applySql);
-            Console.WriteLine($"Applied filters: {affectedRows} entries marked as filtered");
+            // Apply each filter individually to avoid pattern mismatch
+            foreach (var filter in Filters)
+            {
+                string pattern = filter.Term;
+                string displayPattern = string.IsNullOrEmpty(filter.DisplayTerm) ? filter.Term : filter.DisplayTerm;
+                
+                // Apply filters only to entries that aren't manually filtered
+                string applySql = @"
+                    UPDATE entries
+                    SET filtered = 1, filter_reason = @Reason
+                    WHERE filtered = 0
+                    AND manually_filtered = 0
+                    AND ((@Title = 1 AND title LIKE @Pattern)
+                       OR (@Description = 1 AND description LIKE @Pattern))";
+                
+                int affectedRows = connection.Execute(applySql, new { 
+                    Title = filter.Title ? 1 : 0, 
+                    Description = filter.Description ? 1 : 0,
+                    Pattern = pattern,
+                    Reason = displayPattern
+                });
+                
+                Console.WriteLine($"Applied filter '{filter.Term}': {affectedRows} entries marked as filtered");
+            }
             
             // Reload filtered entries
             LoadFilteredEntries();
@@ -299,7 +351,22 @@
     {
         _isNewFilter = false;
         _currentFilter = filter;
-        _filterTerm = filter.Term;
+        
+        // Convert SQL % wildcards back to user-friendly * wildcards for editing
+        string displayTerm = filter.Term;
+        
+        // If it's a contains pattern (% on both ends), remove them
+        if (displayTerm.StartsWith("%") && displayTerm.EndsWith("%") && displayTerm.Length >= 2)
+        {
+            displayTerm = displayTerm.Substring(1, displayTerm.Length - 2);
+        }
+        else
+        {
+            // Otherwise just convert % to *
+            displayTerm = displayTerm.Replace("%", "*");
+        }
+        
+        _filterTerm = displayTerm;
         _filterTitle = filter.Title;
         _filterDescription = filter.Description;
         _filterError = string.Empty;
@@ -326,29 +393,32 @@
         }
 
         try {
+            // Convert user-friendly * wildcards to SQL % wildcards
+            string sqlPattern = ConvertToSqlPattern(_filterTerm);
+            
             using var connection = DbConnectionFactory.CreateConnection();
             
             if (_isNewFilter) {
                 string sql = @"INSERT INTO filters (term, title, description) 
                              VALUES (@Term, @Title, @Description)";
                 connection.Execute(sql, new { 
-                    Term = _filterTerm, 
+                    Term = sqlPattern, 
                     Title = _filterTitle ? 1 : 0, 
                     Description = _filterDescription ? 1 : 0 
                 });
-                Console.WriteLine($"Added new filter: {_filterTerm} (Title: {_filterTitle}, Body: {_filterDescription})");
+                Console.WriteLine($"Added new filter: {_filterTerm} -> {sqlPattern} (Title: {_filterTitle}, Body: {_filterDescription})");
             }
             else if (_currentFilter != null) {
                 string sql = @"UPDATE filters 
                              SET term = @Term, title = @Title, description = @Description 
                              WHERE id = @Id";
                 connection.Execute(sql, new { 
-                    Term = _filterTerm, 
+                    Term = sqlPattern, 
                     Title = _filterTitle ? 1 : 0, 
                     Description = _filterDescription ? 1 : 0,
                     Id = _currentFilter.Id 
                 });
-                Console.WriteLine($"Updated filter: {_filterTerm} (Title: {_filterTitle}, Body: {_filterDescription})");
+                Console.WriteLine($"Updated filter: {_filterTerm} -> {sqlPattern} (Title: {_filterTitle}, Body: {_filterDescription})");
             }
 
             // Apply filters to entries
@@ -361,6 +431,31 @@
             _filterError = $"Error saving filter: {ex.Message}";
             Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
         }
+    }
+
+    // Convert user-friendly * wildcards to SQL % wildcards
+    private string ConvertToSqlPattern(string userPattern)
+    {
+        if (string.IsNullOrEmpty(userPattern))
+            return userPattern;
+            
+        // Check if this is an exact phrase (quoted)
+        if (userPattern.StartsWith("\"") && userPattern.EndsWith("\"") && userPattern.Length >= 2)
+        {
+            // Remove quotes for exact matching
+            return userPattern.Substring(1, userPattern.Length - 2);
+        }
+        
+        // Otherwise, convert * to % for SQL LIKE patterns
+        string pattern = userPattern.Replace("*", "%");
+        
+        // If no wildcards were added by the user, add % at both ends for contains behavior
+        if (!userPattern.Contains("*") && !pattern.Contains("%"))
+        {
+            pattern = "%" + pattern + "%";
+        }
+        
+        return pattern;
     }
 
     private void ShowDeleteModal(ContentFilter filter)

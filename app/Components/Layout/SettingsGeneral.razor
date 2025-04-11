@@ -13,6 +13,68 @@
 <div class="settings-general-container">
     <h3>General Settings</h3>
     
+    <div class="settings-section">
+        <h4>Font Settings</h4>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="fontFamily">Font Family</label>
+                <select id="fontFamily" class="form-select" @bind="FontFamily">
+                    <option value="Verdana, sans-serif">Verdana</option>
+                    <option value="Courier New">Courier New</option>
+                    <option value="sans-serif">Sans-serif</option>
+                    <option value="serif">Serif</option>
+                    <option value="monospace">Monospace</option>
+                    <option value="system-ui">System UI</option>
+                    <option value="Arial, sans-serif">Arial</option>
+                    <option value="'Segoe UI', sans-serif">Segoe UI</option>
+                    <option value="Roboto, sans-serif">Roboto</option>
+                    <option value="'Helvetica Neue', sans-serif">Helvetica Neue</option>
+                    <option value="Georgia, serif">Georgia</option>
+                    <option value="'Courier New', monospace">Courier New</option>
+                    <option value="'Times New Roman', serif">Times New Roman</option>
+                    <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                    <option value="'Lucida Console', monospace">Lucida Console</option>
+                    <option value="'Comic Sans MS', cursive">Comic Sans MS</option>
+                    <option value="'Consolas', monospace">Consolas</option>
+                    <option value="'Open Sans', sans-serif">Open Sans</option>
+                    <option value="'Fira Code', monospace">Fira Code</option>
+                    <option value="'Noto Sans', sans-serif">Noto Sans</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="fontSize">Font Size</label>
+                <select id="fontSize" class="form-select" @bind="FontSize">
+                    <option value="8">8 pt</option>
+                    <option value="9">9 pt</option>
+                    <option value="10">10 pt</option>
+                    <option value="11">11 pt</option>
+                    <option value="12">12 pt</option>
+                    <option value="13">13 pt</option>
+                    <option value="14">14 pt</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="font-preview" style="font-family: @FontFamily; font-size: @(FontSize)pt;">
+            <p>This is a preview of how your text will look.</p>
+            <p><strong>Bold text</strong> and <em>italic text</em> are rendered like this.</p>
+        </div>
+        
+        <div class="form-actions">
+            <button class="btn-save" @onclick="SaveFontSettings" disabled="@isSaving">
+                @if (isSaving) {
+                    <span>Saving...</span>
+                } else {
+                    <span>Save Font Settings</span>
+                }
+            </button>
+            @if (fontSettingsSaved) {
+                <span class="save-success">Settings saved successfully!</span>
+            }
+        </div>
+    </div>
+    
     <div class="settings-general-refresh">
         <button class="btn-refresh" @onclick="RefreshFeeds" disabled="@isRefreshing">
             @if (isRefreshing) {
@@ -51,13 +113,93 @@
 </div>
 
 @code {
+    // Font Settings
+    private string FontFamily { get; set; } = "sans-serif";
+    private int FontSize { get; set; } = 14;
+    private bool isSaving = false;
+    private bool fontSettingsSaved = false;
+    
+    // Refresh Feeds
     private bool isRefreshing = false;
     private int clickCount = 0;
     private DateTime? lastClicked;
     private List<(string message, string type, DateTime time)> refreshLogs = new();
 
-    protected override void OnInitialized() {
+    protected override async Task OnInitializedAsync() {
         AddLog("Component initialized", "info");
+        await LoadSettings();
+    }
+    
+    private async Task LoadSettings() {
+        try {
+            using var connection = DbConnectionFactory.CreateConnection();
+            connection.Open();
+            
+            var fontFamilySetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'font_family'");
+                
+            var fontSizeSetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'font_size'");
+                
+            if (fontFamilySetting != null) {
+                FontFamily = fontFamilySetting.Value;
+            }
+            
+            if (fontSizeSetting != null && int.TryParse(fontSizeSetting.Value, out int size)) {
+                FontSize = size;
+            }
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"Error loading settings: {ex.Message}");
+            // If settings table doesn't exist or other error, use defaults
+        }
+    }
+    
+    private async Task SaveFontSettings() {
+        isSaving = true;
+        fontSettingsSaved = false;
+        StateHasChanged();
+        
+        try {
+            using var connection = DbConnectionFactory.CreateConnection();
+            connection.Open();
+            
+            // Update font family
+            await connection.ExecuteAsync(
+                "INSERT OR REPLACE INTO settings (key, value, type, description) VALUES (@Key, @Value, @Type, @Description)",
+                new Setting { 
+                    Key = "font_family", 
+                    Value = FontFamily, 
+                    Type = "string", 
+                    Description = "Font family for the application" 
+                }
+            );
+            
+            // Update font size
+            await connection.ExecuteAsync(
+                "INSERT OR REPLACE INTO settings (key, value, type, description) VALUES (@Key, @Value, @Type, @Description)",
+                new Setting { 
+                    Key = "font_size", 
+                    Value = FontSize.ToString(), 
+                    Type = "number", 
+                    Description = "Base font size in points" 
+                }
+            );
+            
+            fontSettingsSaved = true;
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"Error saving settings: {ex.Message}");
+        }
+        finally {
+            isSaving = false;
+            StateHasChanged();
+            
+            // Hide success message after 3 seconds
+            await Task.Delay(3000);
+            fontSettingsSaved = false;
+            StateHasChanged();
+        }
     }
     
     private void TestButton() {

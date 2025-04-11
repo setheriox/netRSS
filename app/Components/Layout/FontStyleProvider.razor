@@ -1,0 +1,68 @@
+@using Microsoft.AspNetCore.Components
+@using Dapper
+@using netRSS.Models
+@inject IDbConnectionFactory DbConnectionFactory
+@rendermode InteractiveServer
+
+<style>
+    :root {
+        --app-font-family: @FontFamily;
+        --app-font-size: @(FontSize)pt;
+    }
+    
+    body, input, button, select, textarea {
+        font-family: var(--app-font-family);
+        font-size: var(--app-font-size);
+        transition: font-family 0.3s ease, font-size 0.3s ease;
+    }
+</style>
+
+@code {
+    private string FontFamily { get; set; } = "Verdana, sans-serif";
+    private int FontSize { get; set; } = 8;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFontSettings();
+    }
+    
+    // Preload settings in OnAfterRender to minimize flashing
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadFontSettings();
+            StateHasChanged();
+        }
+    }
+    
+    private async Task LoadFontSettings()
+    {
+        try
+        {
+            using var connection = DbConnectionFactory.CreateConnection();
+            connection.Open();
+            
+            var fontFamilySetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'font_family'");
+                
+            var fontSizeSetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'font_size'");
+                
+            if (fontFamilySetting != null)
+            {
+                FontFamily = fontFamilySetting.Value;
+            }
+            
+            if (fontSizeSetting != null && int.TryParse(fontSizeSetting.Value, out int size))
+            {
+                FontSize = size;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading font settings: {ex.Message}");
+            // If settings table doesn't exist or other error, use defaults
+        }
+    }
+} 

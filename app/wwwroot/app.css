@@ -2,6 +2,7 @@
     --dark-bg: #1a1a1a;
     --dark-text: #e0e0e0;
     --dark-primary: #ffffff;
+    --dark-primary-bg: #2c2c2c;
     --dark-secondary: #2c2c2c;
     --dark-accent: #e74c3c;
     --dark-border: #333;
@@ -21,7 +22,8 @@ html {
 body {
     background-color: var(--dark-bg);
     color: var(--dark-text);
-    font-family: 'Courier New', Courier, monospace;
+    font-family: var(--app-font-family);
+    font-size: var(--app-font-size);
     overflow: hidden;
 }
 
@@ -161,14 +163,14 @@ h1:focus {
 .modal-header h3 {
     margin: 0;
     color: var(--dark-text);
-    font-size: 10pt;
+    font-size: var(--app-font-size);
 }
 
 .modal-close-button {
     background: none;
     border: none;
     color: var(--dark-text);
-    font-size: 10pt;
+    font-size: var(--app-font-size);
     cursor: pointer;
     padding: 0;
     line-height: 1;
@@ -213,7 +215,7 @@ h1:focus {
     border: 2px solid var(--dark-border);
     border-radius: 6px;
     color: var(--dark-text);
-    font-size: 10pt;
+    font-size: var(--app-font-size);
     transition: border-color 0.2s;
 }
 
@@ -225,7 +227,7 @@ h1:focus {
 .validation-error {
     color: #e74c3c;
     margin-top: 8px;
-    font-size: 10pt;
+    font-size: var(--app-font-size);
     padding: 8px 10px;
     background-color: rgba(231, 76, 60, 0.1);
     border-radius: 4px;
@@ -297,7 +299,7 @@ h1:focus {
     border: none;
     color: #888;
     cursor: pointer;
-    font-size: 10pt;
+    font-size: var(--app-font-size);
     padding: 0.2rem;
     transition: all 0.2s ease-in-out;
 }

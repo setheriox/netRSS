@@ -1,7 +1,222 @@
 ﻿@page "/"
+@using Microsoft.AspNetCore.Components
+@using System.Data
+@using Dapper
+@using netRSS.Models
+@using netRSS.Services
+@inject IDbConnectionFactory DbConnectionFactory
+@inject FeedValidationService FeedValidationService
+@rendermode InteractiveServer
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Feed Status - netRSS</PageTitle>
 
-<p>
-    This page is something i will work on later.
-</p>
+<div class="feed-status-container">
+    <h1>Feed Status Dashboard</h1>
+    
+    <div class="dashboard-actions">
+        <button class="btn-refresh" @onclick="LoadFeedStatus" disabled="@isLoading">
+            @if (isLoading)
+            {
+                <span>Loading...</span>
+            }
+            else
+            {
+                <span>Refresh Status</span>
+            }
+        </button>
+        
+        <button class="btn-validate-all" @onclick="ValidateAllFeeds" disabled="@isValidating">
+            @if (isValidating)
+            {
+                <span>Validating All Feeds...</span>
+            }
+            else
+            {
+                <span>Validate All Feeds</span>
+            }
+        </button>
+    </div>
+    
+    <div class="dashboard-stats">
+        <div class="stat-card">
+            <div class="stat-value">@feedStatuses.Count</div>
+            <div class="stat-label">Total Feeds</div>
+        </div>
+        <div class="stat-card success">
+            <div class="stat-value">@feedStatuses.Count(f => f.Status == "ok")</div>
+            <div class="stat-label">Healthy</div>
+        </div>
+        <div class="stat-card warning">
+            <div class="stat-value">@feedStatuses.Count(f => f.Status != "ok" && !f.IsCritical)</div>
+            <div class="stat-label">Warning</div>
+        </div>
+        <div class="stat-card error">
+            <div class="stat-value">@feedStatuses.Count(f => f.Status != "ok" && f.IsCritical)</div>
+            <div class="stat-label">Critical</div>
+        </div>
+    </div>
+    
+    @if (feedStatuses.Any())
+    {
+        <div class="feed-status-table-container">
+            <table class="feed-status-table">
+                <thead>
+                    <tr>
+                        <th>Feed</th>
+                        <th>URL</th>
+                        <th>Status</th>
+                        <th>Last Checked</th>
+                        <th>Failures</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var status in feedStatuses.OrderByDescending(f => f.IsCritical).ThenByDescending(f => f.Status != "ok").ThenBy(f => f.FeedName))
+                    {
+                        <tr class="@GetStatusRowClass(status)">
+                            <td>@status.FeedName</td>
+                            <td class="url-cell">
+                                <div class="url-wrapper" title="@status.FeedUrl">@status.FeedUrl</div>
+                            </td>
+                            <td>
+                                <div class="status-badge @GetStatusClass(status)">
+                                    @GetStatusText(status)
+                                </div>
+                            </td>
+                            <td>@status.LastChecked.ToString("g")</td>
+                            <td>@status.FailCount</td>
+                            <td>
+                                <button class="btn-validate" @onclick="() => ValidateFeed(status)" title="Validate Feed">
+                                    Check
+                                </button>
+                            </td>
+                        </tr>
+                        @if (status.Status != "ok")
+                        {
+                            <tr class="error-details @GetStatusRowClass(status)">
+                                <td colspan="6">
+                                    <div class="error-message">@status.ErrorMessage</div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else if (isLoading)
+    {
+        <div class="loading-message">
+            <p>Loading feed status...</p>
+        </div>
+    }
+    else
+    {
+        <div class="empty-state">
+            <p>No feeds found. Add some feeds in the Settings page.</p>
+        </div>
+    }
+</div>
+
+@code {
+    private List<FeedStatus> feedStatuses = new List<FeedStatus>();
+    private bool isLoading = false;
+    private bool isValidating = false;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFeedStatus();
+    }
+    
+    private async Task LoadFeedStatus()
+    {
+        isLoading = true;
+        StateHasChanged();
+        
+        try
+        {
+            using var connection = DbConnectionFactory.CreateConnection();
+            connection.Open();
+            
+            // Create join query to get feed information along with status
+            var results = await connection.QueryAsync<FeedStatus>(@"
+                SELECT fs.*, f.name AS FeedName, f.url AS FeedUrl
+                FROM feed_status fs
+                JOIN feeds f ON fs.feed_id = f.id
+                ORDER BY fs.is_critical DESC, fs.status DESC, f.name ASC
+            ");
+            
+            feedStatuses = results.ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading feed status: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task ValidateAllFeeds()
+    {
+        isValidating = true;
+        StateHasChanged();
+        
+        try
+        {
+            await FeedValidationService.ValidateAllFeeds();
+            await LoadFeedStatus(); // Refresh the status display
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error validating feeds: {ex.Message}");
+        }
+        finally
+        {
+            isValidating = false;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task ValidateFeed(FeedStatus status)
+    {
+        try
+        {
+            await FeedValidationService.UpdateFeedStatus(status.FeedId, status.FeedUrl, status.FeedName);
+            await LoadFeedStatus(); // Refresh the status display
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error validating feed: {ex.Message}");
+        }
+    }
+    
+    private string GetStatusRowClass(FeedStatus status)
+    {
+        if (status.Status != "ok")
+        {
+            return status.IsCritical ? "critical-row" : "warning-row";
+        }
+        return "ok-row";
+    }
+    
+    private string GetStatusClass(FeedStatus status)
+    {
+        if (status.Status != "ok")
+        {
+            return status.IsCritical ? "critical" : "warning";
+        }
+        return "ok";
+    }
+    
+    private string GetStatusText(FeedStatus status)
+    {
+        if (status.Status != "ok")
+        {
+            return status.IsCritical ? "Critical" : "Warning";
+        }
+        return "OK";
+    }
+}

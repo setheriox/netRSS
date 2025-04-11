@@ -1,0 +1,370 @@
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using System.Xml
+@using System.IO
+@using System.Data
+@using netRSS.Models
+@using netRSS.Services
+@using Dapper
+@inject IDbConnectionFactory DbConnectionFactory
+@inject FeedValidationService FeedValidationService
+@rendermode InteractiveServer
+
+<div class="settings-import-container">
+    <div class="settings-import-header">
+        <h3>Import OPML</h3>
+        <InputFile OnChange="ImportOpmlFile" class="btn-import">
+            <span>Import OPML</span>
+        </InputFile>
+    </div>
+    
+    <div class="settings-import-content">
+        @if (isImporting)
+        {
+            <div class="loading-indicator">
+                <p>Importing OPML file... Please wait.</p>
+            </div>
+        }
+        else if (importResult != null)
+        {
+            <div class="import-result @(importSuccess ? "success" : "error")">
+                <p>@importResult</p>
+                @if (importedFeeds.Count > 0)
+                {
+                    <div class="imported-feeds">
+                        <h4>Imported Feeds:</h4>
+                        <ul>
+                            @foreach (var feed in importedFeeds)
+                            {
+                                <li>@feed</li>
+                            }
+                        </ul>
+                    </div>
+                }
+                @if (importedCategories.Count > 0)
+                {
+                    <div class="imported-categories">
+                        <h4>Imported Categories:</h4>
+                        <ul>
+                            @foreach (var category in importedCategories)
+                            {
+                                <li>@category</li>
+                            }
+                        </ul>
+                    </div>
+                }
+                @if (showValidationResults && validationResults.Any())
+                {
+                    <div class="validation-results">
+                        <h4>Feed Validation Results:</h4>
+                        <div class="validation-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Feed</th>
+                                        <th>URL</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var result in validationResults)
+                                    {
+                                        <tr class="@(result.isValid ? "valid-feed" : "invalid-feed")">
+                                            <td>@result.name</td>
+                                            <td>@result.url</td>
+                                            <td>
+                                                @if (result.isValid)
+                                                {
+                                                    <span class="status-valid">✓ Valid</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="status-invalid" title="@result.errorMessage">✗ Error</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="empty-state">
+                <p>Import your OPML file to add multiple RSS feeds at once.</p>
+                <p>OPML (Outline Processor Markup Language) files can be exported from most RSS readers.</p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool isImporting = false;
+    private string? importResult = null;
+    private bool importSuccess = false;
+    private List<string> importedFeeds = new List<string>();
+    private List<string> importedCategories = new List<string>();
+    private Dictionary<string, string> categoryColors = new Dictionary<string, string>
+    {
+        { "News", "#e74c3c" },
+        { "Technology", "#3498db" },
+        { "Science", "#2ecc71" },
+        { "Entertainment", "#9b59b6" },
+        { "Sports", "#f39c12" },
+        { "Finance", "#16a085" },
+        { "Politics", "#c0392b" },
+        { "Health", "#27ae60" },
+        { "Gaming", "#8e44ad" },
+        { "Food", "#d35400" }
+    };
+    private Random random = new Random();
+    private List<(string name, string url, bool isValid, string errorMessage)> validationResults = new();
+    private bool showValidationResults = false;
+    
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+    }
+    
+    private string GetRandomColor()
+    {
+        byte[] rgb = new byte[3];
+        random.NextBytes(rgb);
+        return $"#{rgb[0]:X2}{rgb[1]:X2}{rgb[2]:X2}";
+    }
+    
+    private async Task ImportOpmlFile(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            isImporting = true;
+            importResult = null;
+            importSuccess = false;
+            importedFeeds.Clear();
+            importedCategories.Clear();
+            validationResults.Clear();
+            showValidationResults = false;
+            StateHasChanged();
+            
+            var file = e.File;
+            if (file == null)
+            {
+                importResult = "No file selected.";
+                return;
+            }
+            
+            if (!file.Name.EndsWith(".opml", StringComparison.OrdinalIgnoreCase) && 
+                !file.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+            {
+                importResult = "Please upload an OPML file (.opml or .xml).";
+                importSuccess = false;
+                return;
+            }
+            
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024); // 1MB max
+            using var reader = new StreamReader(stream);
+            var opmlContent = await reader.ReadToEndAsync();
+            
+            var doc = new XmlDocument();
+            doc.LoadXml(opmlContent);
+            
+            using var connection = DbConnectionFactory.CreateConnection();
+            connection.Open();
+            
+            // Find or create the Uncategorized category for feeds without category
+            string checkUncategorizedSql = "SELECT id FROM categories WHERE name = 'Uncategorized'";
+            var uncategorizedId = connection.QueryFirstOrDefault<int?>(checkUncategorizedSql);
+            
+            if (!uncategorizedId.HasValue)
+            {
+                string createUncategorizedSql = "INSERT INTO categories (name, color) VALUES ('Uncategorized', '#888888')";
+                connection.Execute(createUncategorizedSql);
+                uncategorizedId = connection.QueryFirstOrDefault<int>("SELECT last_insert_rowid()");
+            }
+            
+            // Process the OPML structure - look for body and outline elements
+            var body = doc.GetElementsByTagName("body");
+            int totalImported = 0;
+            
+            if (body.Count > 0)
+            {
+                var topLevelOutlines = body[0].ChildNodes;
+                
+                foreach (XmlNode categoryOutline in topLevelOutlines)
+                {
+                    if (categoryOutline.Name != "outline") continue;
+                    
+                    // Check if this is a category (parent outline) or a direct feed
+                    bool isCategory = categoryOutline.HasChildNodes && 
+                                     categoryOutline.ChildNodes.Cast<XmlNode>().Any(n => n.Name == "outline");
+                    
+                    if (isCategory)
+                    {
+                        // Process as category
+                        string categoryName = categoryOutline.Attributes?["text"]?.Value ?? 
+                                            categoryOutline.Attributes?["title"]?.Value ?? 
+                                            "Imported Category";
+                        
+                        // Find or create this category
+                        string checkCategorySql = "SELECT id FROM categories WHERE name = @Name";
+                        var categoryId = connection.QueryFirstOrDefault<int?>(checkCategorySql, new { Name = categoryName });
+                        
+                        if (!categoryId.HasValue)
+                        {
+                            // Category doesn't exist, create it with a random or predefined color
+                            string color = categoryColors.ContainsKey(categoryName) ? 
+                                         categoryColors[categoryName] : GetRandomColor();
+                                         
+                            string createCategorySql = "INSERT INTO categories (name, color) VALUES (@Name, @Color)";
+                            connection.Execute(createCategorySql, new { Name = categoryName, Color = color });
+                            categoryId = connection.QueryFirstOrDefault<int>("SELECT last_insert_rowid()");
+                            
+                            importedCategories.Add(categoryName);
+                        }
+                        
+                        // Process feeds in this category
+                        int categoryFeedCount = 0;
+                        foreach (XmlNode feedOutline in categoryOutline.ChildNodes)
+                        {
+                            if (feedOutline.Name != "outline") continue;
+                            
+                            if (await ProcessFeedOutline(feedOutline, categoryId.Value, connection))
+                            {
+                                categoryFeedCount++;
+                                totalImported++;
+                            }
+                        }
+                        
+                        if (categoryFeedCount > 0)
+                        {
+                            importResult = $"Imported {categoryFeedCount} feeds into category '{categoryName}'";
+                        }
+                    }
+                    else 
+                    {
+                        // This is a direct feed at top level, not in a category
+                        if (await ProcessFeedOutline(categoryOutline, uncategorizedId.Value, connection))
+                        {
+                            totalImported++;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Fallback: simply look for all outline elements with xmlUrl attribute
+                var allOutlines = doc.GetElementsByTagName("outline");
+                foreach (XmlNode outline in allOutlines)
+                {
+                    if (outline.Attributes?["xmlUrl"] != null)
+                    {
+                        if (await ProcessFeedOutline(outline, uncategorizedId.Value, connection))
+                        {
+                            totalImported++;
+                        }
+                    }
+                }
+            }
+            
+            if (totalImported > 0)
+            {
+                importResult = $"Successfully imported {totalImported} feeds from OPML";
+                if (importedCategories.Count > 0)
+                {
+                    importResult += $" into {importedCategories.Count} categories";
+                }
+                importResult += ".";
+                
+                // Show validation summary
+                showValidationResults = true;
+                var failedFeeds = validationResults.Count(r => !r.isValid);
+                if (failedFeeds > 0)
+                {
+                    importResult += $" Warning: {failedFeeds} feeds failed validation.";
+                }
+                
+                importSuccess = true;
+            }
+            else
+            {
+                importResult = "No feeds found in the OPML file or all feeds already exist in the database.";
+                importSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            importResult = $"Error importing OPML: {ex.Message}";
+            importSuccess = false;
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task<bool> ProcessFeedOutline(XmlNode feedOutline, int categoryId, IDbConnection connection)
+    {
+        if (feedOutline.Attributes?["xmlUrl"] == null) return false;
+        
+        var feedUrl = feedOutline.Attributes["xmlUrl"]?.Value;
+        var feedTitle = feedOutline.Attributes["title"]?.Value ?? 
+                       feedOutline.Attributes["text"]?.Value ?? 
+                       "Imported Feed";
+        
+        if (string.IsNullOrEmpty(feedUrl)) return false;
+        
+        // Check if feed already exists
+        var existingFeed = connection.QueryFirstOrDefault<int>(
+            "SELECT COUNT(*) FROM feeds WHERE url = @Url", 
+            new { Url = feedUrl }
+        );
+        
+        if (existingFeed == 0)
+        {
+            // Validate feed URL
+            var (isValid, errorMessage) = await FeedValidationService.ValidateFeed(feedUrl);
+            
+            // Add to validation results
+            validationResults.Add((feedTitle, feedUrl, isValid, errorMessage));
+            
+            // Add new feed with the specified category (even if validation failed - we'll mark its status)
+            connection.Execute(
+                "INSERT INTO feeds (name, url, category_id) VALUES (@Name, @Url, @CategoryId)",
+                new { Name = feedTitle, Url = feedUrl, CategoryId = categoryId }
+            );
+            
+            // Get the newly created feed ID
+            int newFeedId = connection.QuerySingle<int>("SELECT last_insert_rowid()");
+            
+            // Add feed status
+            if (isValid)
+            {
+                connection.Execute(
+                    "INSERT INTO feed_status (feed_id, status, error_message, last_checked) VALUES (@FeedId, 'ok', '', @LastChecked)",
+                    new { FeedId = newFeedId, LastChecked = DateTime.Now }
+                );
+            }
+            else
+            {
+                connection.Execute(
+                    "INSERT INTO feed_status (feed_id, status, error_message, last_checked, fail_count, is_critical) " +
+                    "VALUES (@FeedId, 'error', @ErrorMessage, @LastChecked, 1, 1)",
+                    new { 
+                        FeedId = newFeedId, 
+                        ErrorMessage = errorMessage, 
+                        LastChecked = DateTime.Now 
+                    }
+                );
+            }
+            
+            importedFeeds.Add(feedTitle);
+            return true;
+        }
+        
+        return false;
+    }
+} 

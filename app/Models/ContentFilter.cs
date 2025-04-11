@@ -5,6 +5,7 @@ namespace netRSS.Models {
         public bool Title { get; set; }
         public bool Description { get; set; }
         public int MatchCount { get; set; }
+        public string DisplayTerm { get; set; } = string.Empty;
 
         public string FilterType => 
             (Title && Description) ? "Both" :

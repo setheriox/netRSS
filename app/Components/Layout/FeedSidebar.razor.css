@@ -11,7 +11,7 @@
     color: var(--dark-primary);
     margin-bottom: 1rem;
     font-weight: bold;
-    font-size: 10pt;
+    font-size: var(--app-font-size);
 }
 
 .feed-sidebar-content {
@@ -28,10 +28,12 @@
 .feed-sidebar-category-name {
     color: var(--dark-text);
     font-weight: bold;
-    font-weight: bold;
-    width: 70px;
+    min-width: 70px;
+    max-width: 140px;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .feed-sidebar-category-feeds {
@@ -57,12 +59,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     grid-column: 1;
-    font-size: 10pt;
+    font-size: var(--app-font-size);
 }
 
 .feed-sidebar-category-feeds-total {
     color: var(--dark-secondary-text, #aaa);
-    font-size: 10pt;
+    font-size: var(--app-font-size);
     min-width: 2rem;
     text-align: right;
     grid-column: 2;
@@ -71,7 +73,7 @@
 .feed-sidebar-category-feeds-unread {
     color: var(--dark-accent);
     font-weight: bold;
-    font-size: 10pt;
+    font-size: var(--app-font-size);
     min-width: 2rem;
     text-align: right;
     grid-column: 3;
@@ -96,23 +98,29 @@
     margin-bottom: 0.5rem;
     padding: 0.25rem 0;
     cursor: pointer;
+    overflow: hidden;
 }
 
 .feed-sidebar-category-counts {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: 10pt;
+    font-size: var(--app-font-size);
     color: var(--dark-secondary-text, #aaa);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .feed-count {
     color: var(--dark-secondary-text, #aaa);
+    white-space: nowrap;
 }
 
 .unread-count {
-    color: var(--dark-accent);
+    color: var(--dark-primary);
     font-weight: bold;
+    white-space: nowrap;
 }
 
 .btn-mark-read {
@@ -121,7 +129,7 @@
     color: var(--dark-primary);
     cursor: pointer;
     padding: 0;
-    font-size: 10pt;
+    font-size: var(--app-font-size);
     transition: transform 0.1s, color 0.2s;
     display: flex;
     align-items: center;
@@ -129,6 +137,7 @@
     width: 1.5rem;
     height: 1.5rem;
     min-width: 1.5rem;
+    flex-shrink: 0;
 }
 
 .btn-mark-read:hover {
@@ -162,7 +171,7 @@
 .feed-sidebar-view-all-button:hover {
     background-color: var(--dark-accent);
     color: var(--dark-background);
-} 
+}
 
 .btn-view-unread {
     background-color: var(--dark-secondary);
@@ -171,9 +180,57 @@
     border-radius: 4px;
     cursor: pointer;
     width: 100%;
+    margin-bottom: 0.5rem;
+    border: 1px solid var(--dark-border);
+    transition: all 0.2s ease;
 }
 
 .btn-view-unread:hover {
     background-color: var(--dark-accent);
     color: var(--dark-background);
+}
+
+.btn-view-unread.active {
+    background-color: var(--dark-accent);
+    color: var(--dark-text);
+}
+
+.feed-sidebar-view-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--dark-border);
+}
+
+.btn-view-starred {
+    background-color: var(--dark-secondary);
+    color: var(--dark-primary);
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    width: 100%;
+    border: 1px solid var(--dark-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.btn-view-starred:hover {
+    background-color: #8e44ad;
+    color: white;
+}
+
+.btn-view-starred.active {
+    background-color: #8e44ad;
+    color: white;
+}
+
+.star-icon {
+    color: #f1c40f;
+    font-size: 1.2em;
+    text-shadow: 0 0 2px rgba(0,0,0,0.5);
 }

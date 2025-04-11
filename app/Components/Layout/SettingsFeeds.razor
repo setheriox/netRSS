@@ -4,7 +4,9 @@
 @using Dapper
 @using Microsoft.Data.Sqlite
 @using System.IO
+@using netRSS.Services
 @inject IDbConnectionFactory DbConnectionFactory
+@inject FeedValidationService FeedValidationService
 @rendermode InteractiveServer
 
 <div class="settings-feeds-container">
@@ -85,9 +87,21 @@
                     </div>
                     <div class="form-group">
                         <label for="feedUrl">URL:</label>
-                        <input type="text" id="feedUrl" class="form-input" @bind="FeedUrl" />
+                        <div class="url-input-group">
+                            <input type="text" id="feedUrl" class="form-input" @bind="FeedUrl" />
+                            <button class="btn-validate" @onclick="ValidateFeedUrl" disabled="@IsValidating">
+                                @if (IsValidating) {
+                                    <span>Validating...</span>
+                                } else {
+                                    <span>Validate</span>
+                                }
+                            </button>
+                        </div>
                         @if (!string.IsNullOrEmpty(UrlError)) {
                             <div class="validation-error">@UrlError</div>
+                        }
+                        @if (ShowValidationWarning && !string.IsNullOrEmpty(ValidationMessage)) {
+                            <div class="validation-warning">@ValidationMessage</div>
                         }
                     </div>
                     <div class="form-group">
@@ -102,7 +116,7 @@
                 </div>
                 <div class="modal-footer">
                     <button class="btn-cancel" @onclick="CloseModal">Cancel</button>
-                    <button class="btn-save" @onclick="SaveFeed">Save</button>
+                    <button class="btn-save" @onclick="SaveFeed" disabled="@IsValidating">Save</button>
                 </div>
             </div>
         </div>
@@ -145,6 +159,9 @@
     private string NameError { get; set; } = string.Empty;
     private string UrlError { get; set; } = string.Empty;
     private string LoadError { get; set; } = string.Empty;
+    private bool IsValidating { get; set; } = false;
+    private string ValidationMessage { get; set; } = string.Empty;
+    private bool ShowValidationWarning { get; set; } = false;
 
     protected override void OnInitialized()
     {
@@ -263,30 +280,58 @@
         CurrentFeed = null;
     }
 
-    private void SaveFeed()
+    private async Task SaveFeed()
     {
-        // Validate
-        bool isValid = true;
+        // Reset errors
+        NameError = string.Empty;
+        UrlError = string.Empty;
+        ValidationMessage = string.Empty;
+        ShowValidationWarning = false;
         
+        // Validate inputs
         if (string.IsNullOrWhiteSpace(FeedName))
         {
             NameError = "Feed name is required";
-            isValid = false;
+            return;
         }
         
         if (string.IsNullOrWhiteSpace(FeedUrl))
         {
             UrlError = "Feed URL is required";
-            isValid = false;
+            return;
         }
-        else if (!Uri.TryCreate(FeedUrl, UriKind.Absolute, out _))
+
+        // Validate URL format
+        try
         {
-            UrlError = "Please enter a valid URL";
-            isValid = false;
+            var uri = new Uri(FeedUrl);
+        }
+        catch
+        {
+            UrlError = "Invalid URL format";
+            return;
         }
         
-        if (!isValid) return;
+        // Validate feed before saving
+        IsValidating = true;
+        ValidationMessage = "Validating feed URL...";
+        ShowValidationWarning = true;
+        StateHasChanged();
         
+        var (isValid, errorMessage) = await FeedValidationService.ValidateFeed(FeedUrl);
+        
+        IsValidating = false;
+        
+        if (!isValid)
+        {
+            UrlError = $"Invalid feed URL: {errorMessage}";
+            ValidationMessage = errorMessage;
+            ShowValidationWarning = true;
+            StateHasChanged();
+            return;
+        }
+        
+        // If valid (even with warnings), proceed to save
         try
         {
             using var connection = DbConnectionFactory.CreateConnection();
@@ -317,12 +362,21 @@
                 // Add new feed
                 string sql = "INSERT INTO feeds (name, url, category_id) VALUES (@Name, @Url, @CategoryId)";
                 connection.Execute(sql, new { Name = FeedName, Url = FeedUrl, CategoryId = categoryId });
+                
+                // Get the newly created feed ID
+                int newFeedId = connection.QuerySingle<int>("SELECT last_insert_rowid()");
+                
+                // Update feed status
+                await FeedValidationService.UpdateFeedStatus(newFeedId, FeedUrl, FeedName);
             }
             else
             {
                 // Update existing feed
                 string sql = "UPDATE feeds SET name = @Name, url = @Url, category_id = @CategoryId WHERE id = @Id";
                 connection.Execute(sql, new { Id = CurrentFeed.id, Name = FeedName, Url = FeedUrl, CategoryId = categoryId });
+                
+                // Update feed status
+                await FeedValidationService.UpdateFeedStatus(CurrentFeed.id, FeedUrl, FeedName);
             }
             
             // Refresh the list
@@ -363,6 +417,62 @@
         catch (Exception ex)
         {
             Console.WriteLine($"Error deleting feed: {ex.Message}");
+        }
+    }
+
+    private async Task ValidateFeedUrl()
+    {
+        if (string.IsNullOrWhiteSpace(FeedUrl))
+        {
+            UrlError = "Feed URL is required";
+            return;
+        }
+        
+        // Validate URL format
+        try
+        {
+            var uri = new Uri(FeedUrl);
+        }
+        catch
+        {
+            UrlError = "Invalid URL format";
+            return;
+        }
+        
+        try
+        {
+            IsValidating = true;
+            ValidationMessage = "Validating feed URL...";
+            ShowValidationWarning = true;
+            StateHasChanged();
+            
+            var (isValid, errorMessage) = await FeedValidationService.ValidateFeed(FeedUrl);
+            
+            if (isValid)
+            {
+                UrlError = string.Empty;
+                ValidationMessage = string.IsNullOrEmpty(errorMessage) 
+                    ? "Feed URL is valid! ✓" 
+                    : $"Feed URL is valid, but with a warning: {errorMessage}";
+                ShowValidationWarning = !string.IsNullOrEmpty(errorMessage);
+            }
+            else
+            {
+                UrlError = $"Invalid feed URL: {errorMessage}";
+                ValidationMessage = errorMessage;
+                ShowValidationWarning = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            UrlError = $"Error validating feed: {ex.Message}";
+            ValidationMessage = ex.Message;
+            ShowValidationWarning = true;
+        }
+        finally
+        {
+            IsValidating = false;
+            StateHasChanged();
         }
     }
 } 
