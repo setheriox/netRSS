@@ -31,11 +31,36 @@
             <table class="settings-table">
                 <thead>
                     <tr>
-                        <th>ID</th>
-                        <th>Name</th>
-                        <th>URL</th>
-                        <th>Category</th>
-                        <th>Entries</th>
+                        <th @onclick="@(() => SortBy("id"))" class="sortable">
+                            ID
+                            @if (SortColumn == "id") {
+                                <span class="sort-indicator">@(SortAscending ? "↑" : "↓")</span>
+                            }
+                        </th>
+                        <th @onclick="@(() => SortBy("name"))" class="sortable">
+                            Name
+                            @if (SortColumn == "name") {
+                                <span class="sort-indicator">@(SortAscending ? "↑" : "↓")</span>
+                            }
+                        </th>
+                        <th @onclick="@(() => SortBy("url"))" class="sortable">
+                            URL
+                            @if (SortColumn == "url") {
+                                <span class="sort-indicator">@(SortAscending ? "↑" : "↓")</span>
+                            }
+                        </th>
+                        <th @onclick="@(() => SortBy("category"))" class="sortable">
+                            Category
+                            @if (SortColumn == "category") {
+                                <span class="sort-indicator">@(SortAscending ? "↑" : "↓")</span>
+                            }
+                        </th>
+                        <th @onclick="@(() => SortBy("entries"))" class="sortable">
+                            Entries
+                            @if (SortColumn == "entries") {
+                                <span class="sort-indicator">@(SortAscending ? "↑" : "↓")</span>
+                            }
+                        </th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -146,6 +171,22 @@
     }
 </div>
 
+<style>
+    .sortable {
+        cursor: pointer;
+        user-select: none;
+    }
+    
+    .sortable:hover {
+        background-color: rgba(0, 0, 0, 0.05);
+    }
+    
+    .sort-indicator {
+        margin-left: 4px;
+        font-size: 0.8em;
+    }
+</style>
+
 @code {
     private List<Feed> Feeds { get; set; } = new();
     private List<Category> Categories { get; set; } = new();
@@ -162,13 +203,126 @@
     private bool IsValidating { get; set; } = false;
     private string ValidationMessage { get; set; } = string.Empty;
     private bool ShowValidationWarning { get; set; } = false;
+    private string SortColumn { get; set; } = "name";
+    private bool SortAscending { get; set; } = true;
 
-    protected override void OnInitialized()
+    // DTO class to handle the query results
+    private class FeedDTO
     {
-        LoadFeedsAndCategories();
+        public int id { get; set; }
+        public string name { get; set; } = string.Empty;
+        public string url { get; set; } = string.Empty;
+        public int category_id { get; set; }
+        public string? category_name { get; set; }
+        public string? category_color { get; set; }
+        public int entry_count { get; set; }
     }
 
-    private void LoadFeedsAndCategories()
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSortingPreferences();
+        await LoadFeedsAndCategories();
+    }
+
+    private async Task LoadSortingPreferences()
+    {
+        try
+        {
+            using var connection = DbConnectionFactory.CreateConnection();
+            await connection.OpenAsync();
+            
+            // Check if settings table exists
+            try
+            {
+                // Try to select from settings table - this will fail if it doesn't exist
+                await connection.ExecuteScalarAsync<string>("SELECT key FROM settings LIMIT 1");
+            }
+            catch (Exception)
+            {
+                // If the query fails, the table doesn't exist, so create it
+                await connection.ExecuteAsync(@"
+                    CREATE TABLE IF NOT EXISTS settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        type TEXT DEFAULT 'string',
+                        description TEXT
+                    );
+                ");
+                Console.WriteLine("Created settings table");
+            }
+            
+            // Check if feed_sort_column setting exists
+            var sortColumnSetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'feed_sort_column'");
+                
+            if (sortColumnSetting != null)
+            {
+                SortColumn = sortColumnSetting.Value;
+            }
+            
+            // Check if feed_sort_ascending setting exists
+            var sortAscendingSetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'feed_sort_ascending'");
+                
+            if (sortAscendingSetting != null && bool.TryParse(sortAscendingSetting.Value, out bool ascending))
+            {
+                SortAscending = ascending;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading sorting preferences: {ex.Message}");
+            // If there's an error, use defaults
+            SortColumn = "name";
+            SortAscending = true;
+        }
+    }
+
+    private async Task SaveSortingPreferences()
+    {
+        try
+        {
+            using var connection = DbConnectionFactory.CreateConnection();
+            await connection.OpenAsync();
+            
+            // Save sort column
+            await connection.ExecuteAsync(@"
+                INSERT OR REPLACE INTO settings (key, value, type, description)
+                VALUES ('feed_sort_column', @Value, 'string', 'Column to sort feeds by')
+            ", new { Value = SortColumn });
+            
+            // Save sort direction
+            await connection.ExecuteAsync(@"
+                INSERT OR REPLACE INTO settings (key, value, type, description)
+                VALUES ('feed_sort_ascending', @Value, 'boolean', 'Whether to sort feeds in ascending order')
+            ", new { Value = SortAscending.ToString() });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving sorting preferences: {ex.Message}");
+        }
+    }
+
+    private async Task SortBy(string column)
+    {
+        if (SortColumn == column)
+        {
+            SortAscending = !SortAscending;
+        }
+        else
+        {
+            SortColumn = column;
+            SortAscending = true;
+        }
+        
+        // Save the sorting preferences
+        await SaveSortingPreferences();
+        
+        // Reload the feeds with the new sorting
+        await LoadFeedsAndCategories();
+    }
+
+    private async Task LoadFeedsAndCategories()
     {
         IsLoading = true;
         LoadError = string.Empty;
@@ -178,45 +332,83 @@
         try
         {
             using var connection = DbConnectionFactory.CreateConnection();
-            connection.Open();
+            await connection.OpenAsync();
             
             Console.WriteLine("Database connection opened successfully");
 
+            // Always read sorting preferences from the database
+            var sortColumnSetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'feed_sort_column'");
+                
+            if (sortColumnSetting != null)
+            {
+                SortColumn = sortColumnSetting.Value;
+            }
+            
+            var sortAscendingSetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'feed_sort_ascending'");
+                
+            if (sortAscendingSetting != null && bool.TryParse(sortAscendingSetting.Value, out bool ascending))
+            {
+                SortAscending = ascending;
+            }
+
             // Check if Uncategorized category exists, create it if not
             string checkUncategorizedSql = "SELECT id FROM categories WHERE name = 'Uncategorized'";
-            var uncategorizedId = connection.QueryFirstOrDefault<int?>(checkUncategorizedSql);
+            var uncategorizedId = await connection.QueryFirstOrDefaultAsync<int?>(checkUncategorizedSql);
             
             if (!uncategorizedId.HasValue)
             {
                 string createUncategorizedSql = "INSERT INTO categories (name, color) VALUES ('Uncategorized', '#888888')";
-                connection.Execute(createUncategorizedSql);
-                uncategorizedId = connection.QueryFirstOrDefault<int>("SELECT last_insert_rowid()");
+                await connection.ExecuteAsync(createUncategorizedSql);
+                uncategorizedId = await connection.QueryFirstOrDefaultAsync<int>("SELECT last_insert_rowid()");
                 Console.WriteLine($"Created Uncategorized category with ID: {uncategorizedId}");
             }
 
             // Load categories first (for the dropdown)
             string sqlCategories = "SELECT * FROM categories ORDER BY name";
-            Categories = connection.Query<Category>(sqlCategories).ToList();
+            Categories = (await connection.QueryAsync<Category>(sqlCategories)).ToList();
             Console.WriteLine($"Loaded {Categories.Count} categories");
 
-            // Load feeds 
-            string sqlFeeds = "SELECT * FROM feeds ORDER BY name";
-            var feedsList = connection.Query<Feed>(sqlFeeds).ToList();
-            Console.WriteLine($"Loaded {feedsList.Count} feeds");
+            // Build the SQL query for feeds with proper sorting
+            string orderByClause = BuildOrderByClause();
+            string sqlFeeds = $@"
+                SELECT f.*, 
+                       c.name as category_name, 
+                       c.color as category_color,
+                       (SELECT COUNT(*) FROM entries WHERE feed_id = f.id) as entry_count
+                FROM feeds f
+                LEFT JOIN categories c ON f.category_id = c.id
+                {orderByClause}";
+                
+            var feedDTOs = (await connection.QueryAsync<FeedDTO>(sqlFeeds)).ToList();
+            Console.WriteLine($"Loaded {feedDTOs.Count} feeds with sorting: {orderByClause}");
             
-            // Get categories for each feed
-            foreach (var feed in feedsList)
+            // Process the feeds
+            foreach (var dto in feedDTOs)
             {
-                if (feed.category_id > 0) {
-                    string sqlCategory = "SELECT * FROM categories WHERE id = @CategoryId";
-                    feed.Category = connection.QueryFirstOrDefault<Category>(sqlCategory, new { CategoryId = feed.category_id });
-                } else {
+                var feed = new Feed
+                {
+                    id = dto.id,
+                    name = dto.name,
+                    url = dto.url,
+                    category_id = dto.category_id,
+                    TotalCount = dto.entry_count
+                };
+                
+                if (dto.category_id > 0 && dto.category_name != null && dto.category_color != null)
+                {
+                    feed.Category = new Category 
+                    { 
+                        id = dto.category_id,
+                        name = dto.category_name,
+                        color = dto.category_color
+                    };
+                }
+                else
+                {
                     feed.Category = null;
                 }
-                
-                // Get entry count for this feed
-                string sqlEntryCount = "SELECT COUNT(*) FROM entries WHERE feed_id = @FeedId";
-                feed.TotalCount = connection.ExecuteScalar<int>(sqlEntryCount, new { FeedId = feed.id });
                 
                 Feeds.Add(feed);
             }
@@ -226,6 +418,8 @@
             {
                 SelectedCategoryId = Categories.First().id;
             }
+            
+            IsLoading = false;
         }
         catch (Exception ex)
         {
@@ -233,8 +427,22 @@
             Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
         }
         
-        IsLoading = false;
         StateHasChanged();
+    }
+    
+    private string BuildOrderByClause()
+    {
+        string direction = SortAscending ? "ASC" : "DESC";
+        
+        return SortColumn switch
+        {
+            "id" => $"ORDER BY f.id {direction}",
+            "name" => $"ORDER BY f.name {direction}",
+            "url" => $"ORDER BY f.url {direction}",
+            "category" => $"ORDER BY COALESCE(c.name, 'Uncategorized') {direction}",
+            "entries" => $"ORDER BY entry_count {direction}",
+            _ => $"ORDER BY f.name {direction}"
+        };
     }
 
     private void ShowAddEditModal(Feed? feed)
@@ -335,20 +543,20 @@
         try
         {
             using var connection = DbConnectionFactory.CreateConnection();
-            connection.Open();
+            await connection.OpenAsync();
             
             // If Uncategorized is selected (0), find or create the Uncategorized category
             int categoryId = SelectedCategoryId;
             if (categoryId == 0)
             {
                 string checkUncategorizedSql = "SELECT id FROM categories WHERE name = 'Uncategorized'";
-                var uncategorizedId = connection.QueryFirstOrDefault<int?>(checkUncategorizedSql);
+                var uncategorizedId = await connection.QueryFirstOrDefaultAsync<int?>(checkUncategorizedSql);
                 
                 if (!uncategorizedId.HasValue)
                 {
                     string createUncategorizedSql = "INSERT INTO categories (name, color) VALUES ('Uncategorized', '#888888')";
-                    connection.Execute(createUncategorizedSql);
-                    categoryId = connection.QueryFirstOrDefault<int>("SELECT last_insert_rowid()");
+                    await connection.ExecuteAsync(createUncategorizedSql);
+                    categoryId = await connection.QueryFirstOrDefaultAsync<int>("SELECT last_insert_rowid()");
                     Console.WriteLine($"Created Uncategorized category with ID: {categoryId}");
                 }
                 else
@@ -361,10 +569,10 @@
             {
                 // Add new feed
                 string sql = "INSERT INTO feeds (name, url, category_id) VALUES (@Name, @Url, @CategoryId)";
-                connection.Execute(sql, new { Name = FeedName, Url = FeedUrl, CategoryId = categoryId });
+                await connection.ExecuteAsync(sql, new { Name = FeedName, Url = FeedUrl, CategoryId = categoryId });
                 
                 // Get the newly created feed ID
-                int newFeedId = connection.QuerySingle<int>("SELECT last_insert_rowid()");
+                int newFeedId = await connection.QuerySingleAsync<int>("SELECT last_insert_rowid()");
                 
                 // Update feed status
                 await FeedValidationService.UpdateFeedStatus(newFeedId, FeedUrl, FeedName);
@@ -373,14 +581,14 @@
             {
                 // Update existing feed
                 string sql = "UPDATE feeds SET name = @Name, url = @Url, category_id = @CategoryId WHERE id = @Id";
-                connection.Execute(sql, new { Id = CurrentFeed.id, Name = FeedName, Url = FeedUrl, CategoryId = categoryId });
+                await connection.ExecuteAsync(sql, new { Id = CurrentFeed.id, Name = FeedName, Url = FeedUrl, CategoryId = categoryId });
                 
                 // Update feed status
                 await FeedValidationService.UpdateFeedStatus(CurrentFeed.id, FeedUrl, FeedName);
             }
             
             // Refresh the list
-            LoadFeedsAndCategories();
+            await LoadFeedsAndCategories();
             CloseModal();
         }
         catch (Exception ex)
@@ -389,7 +597,7 @@
         }
     }
 
-    private void DeleteFeed()
+    private async Task DeleteFeed()
     {
         if (CurrentFeed == null) return;
         
@@ -399,19 +607,20 @@
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString))
             {
-                connection.Open();
+                await connection.OpenAsync();
                 
                 // First delete all entries associated with this feed
                 string deleteEntriesSql = "DELETE FROM entries WHERE feed_id = @FeedId";
-                connection.Execute(deleteEntriesSql, new { FeedId = CurrentFeed.id });
+                await connection.ExecuteAsync(deleteEntriesSql, new { FeedId = CurrentFeed.id });
                 
                 // Then delete the feed
                 string deleteFeedSql = "DELETE FROM feeds WHERE id = @Id";
-                connection.Execute(deleteFeedSql, new { Id = CurrentFeed.id });
+                await connection.ExecuteAsync(deleteFeedSql, new { Id = CurrentFeed.id });
             }
             
-            // Refresh the list
-            LoadFeedsAndCategories();
+            // Simply reload the feeds with current sorting preferences
+            await LoadFeedsAndCategories();
+            
             CloseDeleteConfirm();
         }
         catch (Exception ex)

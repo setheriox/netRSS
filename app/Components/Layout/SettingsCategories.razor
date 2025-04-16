@@ -51,7 +51,11 @@
                                 <button class="btn-edit" @onclick="() => ShowEditModal(category)" title="Edit Category">
                                     Edit
                                 </button>
-                                <button class="btn-delete" @onclick="() => ShowDeleteModal(category)" title="Delete Category">
+                                <button class="btn-delete" 
+                                        @onclick="() => ShowDeleteModal(category)" 
+                                        title="Delete Category"
+                                        disabled="@(category.name == "Uncategorized")"
+                                        style="@(category.name == "Uncategorized" ? "opacity: 0.5; cursor: not-allowed;" : "")">
                                     Delete
                                 </button>
                             </td>
@@ -107,7 +111,7 @@
                 <p>Are you sure you want to delete the category "@_categoryToDelete?.name"?</p>
                 @if (_categoryToDelete?.FeedCount > 0) {
                     <div class="warning-message">
-                        <p>This category has @_categoryToDelete.FeedCount feeds associated with it. Deleting this category will move all feeds to the Unsorted category.</p>
+                        <p>This category has @_categoryToDelete.FeedCount feeds associated with it. Deleting this category will move all feeds to the Uncategorized category.</p>
                     </div>
                 }
             </div>
@@ -262,14 +266,30 @@
         {
             using var connection = DbConnectionFactory.CreateConnection();
             
-            // Find Unsorted category
-            int unsortedId = connection.ExecuteScalar<int>("SELECT id FROM categories WHERE name = 'Unsorted'");
+            // Don't allow deletion of Uncategorized category
+            if (_categoryToDelete.name == "Uncategorized")
+            {
+                LoadError = "The Uncategorized category cannot be deleted.";
+                _showDeleteModal = false;
+                _categoryToDelete = null;
+                return;
+            }
             
-            // Move feeds to Unsorted category
+            // Find or create Uncategorized category
+            var uncategorizedId = connection.QueryFirstOrDefault<int?>("SELECT id FROM categories WHERE name = 'Uncategorized'");
+            if (!uncategorizedId.HasValue)
+            {
+                // Create Uncategorized category if it doesn't exist
+                connection.Execute("INSERT INTO categories (name, color) VALUES ('Uncategorized', '#888888')");
+                uncategorizedId = connection.QuerySingle<int>("SELECT last_insert_rowid()");
+            }
+            
+            // Move feeds to Uncategorized category
             if (_categoryToDelete.FeedCount > 0)
             {
-                string updateFeedsSql = "UPDATE feeds SET category_id = @UnsortedId WHERE category_id = @CategoryId";
-                connection.Execute(updateFeedsSql, new { UnsortedId = unsortedId, CategoryId = _categoryToDelete.id });
+                string updateFeedsSql = "UPDATE feeds SET category_id = @UncategorizedId WHERE category_id = @CategoryId";
+                connection.Execute(updateFeedsSql, new { UncategorizedId = uncategorizedId, CategoryId = _categoryToDelete.id });
+                Console.WriteLine($"Moved {_categoryToDelete.FeedCount} feeds to Uncategorized category");
             }
             
             // Delete the category

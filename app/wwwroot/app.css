@@ -397,9 +397,10 @@ h1:focus {
 
 .entries-list {
     margin-top: 0.5rem;
+    margin-left: 25px;
+    margin-right: 25px;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
 }
 
 .rss-entry {
