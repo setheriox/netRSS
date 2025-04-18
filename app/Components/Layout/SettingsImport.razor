@@ -189,7 +189,7 @@
             var body = doc.GetElementsByTagName("body");
             int totalImported = 0;
             
-            if (body.Count > 0)
+            if (body.Count > 0 && body[0] != null)
             {
                 var topLevelOutlines = body[0].ChildNodes;
                 

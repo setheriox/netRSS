@@ -17,4 +17,4 @@ ENV ASPNETCORE_ENVIRONMENT=Development
 ENV DOTNET_WATCH_RESTART_ON_RUDE_EDIT=true
 
 # Use dotnet watch for hot reload in development
-ENTRYPOINT ["dotnet", "watch", "run", "--urls", "http://0.0.0.0:15001"]
+ENTRYPOINT ["dotnet", "run", "--urls", "http://0.0.0.0:15001"]

@@ -66,151 +66,161 @@ void EnsureDatabaseExists(string dbPath)
     // Ensure the Data directory exists
     Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
-    // If the database doesn't exist, create it and add the schema
+    // Create the database file if it doesn't exist
     if (!File.Exists(dbPath))
     {
+        // Create an empty database file
         using var connection = new SqliteConnection($"Data Source={dbPath}");
         connection.Open();
-
-        // Read the SQL schema from the rss.sql file
-        string sqlFilePath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.sql");
-        
-        if (!File.Exists(sqlFilePath))
-        {
-            Console.WriteLine($"ERROR: SQL schema file not found at {sqlFilePath}");
-            throw new FileNotFoundException($"SQL schema file not found at {sqlFilePath}");
-        }
-        
-        string sqlSchema = File.ReadAllText(sqlFilePath);
-        
-        // Execute the SQL schema
-        connection.Execute(sqlSchema);
-        Console.WriteLine($"Database created using schema from {sqlFilePath}");
+        Console.WriteLine($"Created new database file at {dbPath}");
     }
-    else
+
+    // Check if the tables exist and create them if they don't
+    using var dbConnection = new SqliteConnection($"Data Source={dbPath}");
+    dbConnection.Open();
+
+    // Read the SQL schema from the rss.sql file
+    string sqlFilePath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.sql");
+    
+    if (!File.Exists(sqlFilePath))
     {
-        // Check if starred column exists in entries table
-        using var connection = new SqliteConnection($"Data Source={dbPath}");
-        connection.Open();
+        Console.WriteLine($"ERROR: SQL schema file not found at {sqlFilePath}");
+        throw new FileNotFoundException($"SQL schema file not found at {sqlFilePath}");
+    }
+    
+    string sqlSchema = File.ReadAllText(sqlFilePath);
+    
+    // Check if the entries table exists
+    try
+    {
+        dbConnection.ExecuteScalar<int>("SELECT COUNT(*) FROM entries");
+        Console.WriteLine("Database schema already exists");
+    }
+    catch (Exception)
+    {
+        // If the query fails, the table doesn't exist, so create the schema
+        dbConnection.Execute(sqlSchema);
+        Console.WriteLine($"Database schema created using {sqlFilePath}");
+    }
 
-        try
-        {
-            // Try to select the starred column - this will fail if it doesn't exist
-            connection.ExecuteScalar<int>("SELECT starred FROM entries LIMIT 1");
-        }
-        catch (Exception)
-        {
-            // If the query fails, the column doesn't exist, so add it
-            connection.Execute("ALTER TABLE entries ADD COLUMN starred INTEGER DEFAULT 0");
-            Console.WriteLine("Added starred column to entries table");
-        }
-        
-        // Check if manually_filtered column exists in entries table
-        try
-        {
-            // Try to select the manually_filtered column - this will fail if it doesn't exist
-            connection.ExecuteScalar<int>("SELECT manually_filtered FROM entries LIMIT 1");
-        }
-        catch (Exception)
-        {
-            // If the query fails, the column doesn't exist, so add it
-            connection.Execute("ALTER TABLE entries ADD COLUMN manually_filtered INTEGER DEFAULT 0");
-            Console.WriteLine("Added manually_filtered column to entries table");
-        }
-        
-        // Check if filter_reason column exists in entries table
-        try
-        {
-            // Try to select the filter_reason column - this will fail if it doesn't exist
-            connection.ExecuteScalar<string>("SELECT filter_reason FROM entries LIMIT 1");
-        }
-        catch (Exception)
-        {
-            // If the query fails, the column doesn't exist, so add it
-            connection.Execute("ALTER TABLE entries ADD COLUMN filter_reason TEXT DEFAULT NULL");
-            Console.WriteLine("Added filter_reason column to entries table");
-        }
-        
-        // Check if settings table exists
-        try
-        {
-            // Try to select from settings table - this will fail if it doesn't exist
-            connection.ExecuteScalar<string>("SELECT key FROM settings LIMIT 1");
-        }
-        catch (Exception)
-        {
-            // If the query fails, the table doesn't exist, so create it
-            connection.Execute(@"
-                CREATE TABLE settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    type TEXT DEFAULT 'string',
-                    description TEXT
-                );
-                
-                -- Insert default settings
-                INSERT INTO settings (key, value, type, description) 
-                VALUES ('font_family', 'Verdana, sans-serif', 'string', 'Font family for the application');
-                
-                INSERT INTO settings (key, value, type, description) 
-                VALUES ('font_size', '8', 'number', 'Base font size in points');
-            ");
-            Console.WriteLine("Created settings table with default values");
-        }
-
-        // Check if feed_status table exists
-        try 
-        {
-            // Try to select from feed_status table - this will fail if it doesn't exist
-            connection.ExecuteScalar<string>("SELECT status FROM feed_status LIMIT 1");
-        }
-        catch (Exception)
-        {
-            // If the query fails, the table doesn't exist, so create it
-            connection.Execute(@"
-                CREATE TABLE feed_status (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    feed_id INTEGER NOT NULL,
-                    status TEXT DEFAULT 'ok',
-                    error_message TEXT,
-                    last_checked DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    fail_count INTEGER DEFAULT 0,
-                    is_critical BOOLEAN DEFAULT 0,
-                    FOREIGN KEY (feed_id) REFERENCES feeds (id) ON DELETE CASCADE
-                );
-            ");
-            Console.WriteLine("Created feed_status table");
+    // Check if starred column exists in entries table
+    try
+    {
+        // Try to select the starred column - this will fail if it doesn't exist
+        dbConnection.ExecuteScalar<int>("SELECT starred FROM entries LIMIT 1");
+    }
+    catch (Exception)
+    {
+        // If the query fails, the column doesn't exist, so add it
+        dbConnection.Execute("ALTER TABLE entries ADD COLUMN starred INTEGER DEFAULT 0");
+        Console.WriteLine("Added starred column to entries table");
+    }
+    
+    // Check if manually_filtered column exists in entries table
+    try
+    {
+        // Try to select the manually_filtered column - this will fail if it doesn't exist
+        dbConnection.ExecuteScalar<int>("SELECT manually_filtered FROM entries LIMIT 1");
+    }
+    catch (Exception)
+    {
+        // If the query fails, the column doesn't exist, so add it
+        dbConnection.Execute("ALTER TABLE entries ADD COLUMN manually_filtered INTEGER DEFAULT 0");
+        Console.WriteLine("Added manually_filtered column to entries table");
+    }
+    
+    // Check if filter_reason column exists in entries table
+    try
+    {
+        // Try to select the filter_reason column - this will fail if it doesn't exist
+        dbConnection.ExecuteScalar<string>("SELECT filter_reason FROM entries LIMIT 1");
+    }
+    catch (Exception)
+    {
+        // If the query fails, the column doesn't exist, so add it
+        dbConnection.Execute("ALTER TABLE entries ADD COLUMN filter_reason TEXT DEFAULT NULL");
+        Console.WriteLine("Added filter_reason column to entries table");
+    }
+    
+    // Check if settings table exists
+    try
+    {
+        // Try to select from settings table - this will fail if it doesn't exist
+        dbConnection.ExecuteScalar<string>("SELECT key FROM settings LIMIT 1");
+    }
+    catch (Exception)
+    {
+        // If the query fails, the table doesn't exist, so create it
+        dbConnection.Execute(@"
+            CREATE TABLE settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                type TEXT DEFAULT 'string',
+                description TEXT
+            );
             
-            // Initialize status for all existing feeds
-            connection.Execute(@"
-                INSERT INTO feed_status (feed_id, status)
-                SELECT id, 'ok' FROM feeds 
-                WHERE id NOT IN (SELECT feed_id FROM feed_status)
-            ");
-        }
-
-        // Check if display_term column exists in filters table
-        try
-        {
-            // Try to select the display_term column - this will fail if it doesn't exist
-            connection.ExecuteScalar<string>("SELECT display_term FROM filters LIMIT 1");
-        }
-        catch (Exception)
-        {
-            // If the query fails, the column doesn't exist, so add it
-            connection.Execute("ALTER TABLE filters ADD COLUMN display_term TEXT");
+            -- Insert default settings
+            INSERT INTO settings (key, value, type, description) 
+            VALUES ('font_family', 'Verdana, sans-serif', 'string', 'Font family for the application');
             
-            // Update existing filters to set display_term to the user-friendly version of term
-            connection.Execute(@"
-                UPDATE filters 
-                SET display_term = 
-                    CASE 
-                        WHEN term LIKE '%\%%' THEN TRIM(term, '%')
-                        ELSE term
-                    END
-            ");
-            Console.WriteLine("Added display_term column to filters table");
-        }
+            INSERT INTO settings (key, value, type, description) 
+            VALUES ('font_size', '8', 'number', 'Base font size in points');
+        ");
+        Console.WriteLine("Created settings table with default values");
+    }
+
+    // Check if feed_status table exists
+    try 
+    {
+        // Try to select from feed_status table - this will fail if it doesn't exist
+        dbConnection.ExecuteScalar<string>("SELECT status FROM feed_status LIMIT 1");
+    }
+    catch (Exception)
+    {
+        // If the query fails, the table doesn't exist, so create it
+        dbConnection.Execute(@"
+            CREATE TABLE feed_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feed_id INTEGER NOT NULL,
+                status TEXT DEFAULT 'ok',
+                error_message TEXT,
+                last_checked DATETIME DEFAULT CURRENT_TIMESTAMP,
+                fail_count INTEGER DEFAULT 0,
+                is_critical BOOLEAN DEFAULT 0,
+                FOREIGN KEY (feed_id) REFERENCES feeds (id) ON DELETE CASCADE
+            );
+        ");
+        Console.WriteLine("Created feed_status table");
+        
+        // Initialize status for all existing feeds
+        dbConnection.Execute(@"
+            INSERT INTO feed_status (feed_id, status)
+            SELECT id, 'ok' FROM feeds 
+            WHERE id NOT IN (SELECT feed_id FROM feed_status)
+        ");
+    }
+
+    // Check if display_term column exists in filters table
+    try
+    {
+        // Try to select the display_term column - this will fail if it doesn't exist
+        dbConnection.ExecuteScalar<string>("SELECT display_term FROM filters LIMIT 1");
+    }
+    catch (Exception)
+    {
+        // If the query fails, the column doesn't exist, so add it
+        dbConnection.Execute("ALTER TABLE filters ADD COLUMN display_term TEXT");
+        
+        // Update existing filters to set display_term to the user-friendly version of term
+        dbConnection.Execute(@"
+            UPDATE filters 
+            SET display_term = 
+                CASE 
+                    WHEN term LIKE '%\%%' THEN TRIM(term, '%')
+                    ELSE term
+                END
+        ");
+        Console.WriteLine("Added display_term column to filters table");
     }
 }
 

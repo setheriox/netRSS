@@ -5,8 +5,12 @@
 @using Microsoft.Data.Sqlite
 @using System.IO
 @using netRSS.Services
+@using System.Xml
+@using System.ServiceModel.Syndication
+@using System.Diagnostics
 @inject IDbConnectionFactory DbConnectionFactory
 @inject FeedValidationService FeedValidationService
+@inject IHttpClientFactory HttpClientFactory
 @rendermode InteractiveServer
 
 <div class="settings-feeds-container">
@@ -565,6 +569,7 @@
                 }
             }
             
+            int feedId;
             if (CurrentFeed == null)
             {
                 // Add new feed
@@ -572,10 +577,10 @@
                 await connection.ExecuteAsync(sql, new { Name = FeedName, Url = FeedUrl, CategoryId = categoryId });
                 
                 // Get the newly created feed ID
-                int newFeedId = await connection.QuerySingleAsync<int>("SELECT last_insert_rowid()");
+                feedId = await connection.QuerySingleAsync<int>("SELECT last_insert_rowid()");
                 
                 // Update feed status
-                await FeedValidationService.UpdateFeedStatus(newFeedId, FeedUrl, FeedName);
+                await FeedValidationService.UpdateFeedStatus(feedId, FeedUrl, FeedName);
             }
             else
             {
@@ -585,7 +590,11 @@
                 
                 // Update feed status
                 await FeedValidationService.UpdateFeedStatus(CurrentFeed.id, FeedUrl, FeedName);
+                feedId = CurrentFeed.id;
             }
+
+            // After saving the feed, fetch its entries
+            await FetchFeedEntries(feedId, FeedUrl, FeedName);
             
             // Refresh the list
             await LoadFeedsAndCategories();
@@ -594,6 +603,149 @@
         catch (Exception ex)
         {
             Console.WriteLine($"Error saving feed: {ex.Message}");
+        }
+    }
+
+    private async Task FetchFeedEntries(int feedId, string feedUrl, string feedName)
+    {
+        try
+        {
+            using var httpClient = HttpClientFactory.CreateClient();
+            // Add browser-like headers to avoid 403 errors
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            httpClient.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            httpClient.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.5");
+
+            using var connection = DbConnectionFactory.CreateConnection();
+            await connection.OpenAsync();
+
+            // Add retry logic for failed requests
+            HttpResponseMessage? response = null;
+            string? content = null;
+            int maxRetries = 3;
+            int currentTry = 0;
+
+            while (currentTry < maxRetries)
+            {
+                try
+                {
+                    response = await httpClient.GetAsync(feedUrl);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        content = await response.Content.ReadAsStringAsync();
+                        break;
+                    }
+                    currentTry++;
+                    if (currentTry < maxRetries)
+                    {
+                        await Task.Delay(1000 * currentTry); // Exponential backoff
+                    }
+                }
+                catch
+                {
+                    currentTry++;
+                    if (currentTry >= maxRetries) throw;
+                    await Task.Delay(1000 * currentTry);
+                }
+            }
+
+            if (content == null)
+            {
+                throw new Exception($"Failed to fetch feed after {maxRetries} attempts. Status: {response?.StatusCode}");
+            }
+
+            var xmlDoc = new XmlDocument();
+            xmlDoc.LoadXml(content);
+
+            // Check if this is an RDF feed
+            var isRdf = xmlDoc.DocumentElement?.NamespaceURI == "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+
+            if (isRdf)
+            {
+                // Handle RDF feed
+                var nsmgr = new XmlNamespaceManager(xmlDoc.NameTable);
+                nsmgr.AddNamespace("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#");
+                nsmgr.AddNamespace("rss", "http://purl.org/rss/1.0/");
+                nsmgr.AddNamespace("dc", "http://purl.org/dc/elements/1.1/");
+
+                var items = xmlDoc.SelectNodes("//rss:item", nsmgr);
+                if (items != null)
+                {
+                    foreach (XmlNode item in items)
+                    {
+                        var title = item.SelectSingleNode("rss:title", nsmgr)?.InnerText ?? "";
+                        var description = item.SelectSingleNode("rss:description", nsmgr)?.InnerText;
+                        var link = item.SelectSingleNode("rss:link", nsmgr)?.InnerText;
+                        var dateStr = item.SelectSingleNode("dc:date", nsmgr)?.InnerText;
+
+                        DateTime published;
+                        if (!DateTime.TryParse(dateStr, out published))
+                        {
+                            published = DateTime.Now;
+                        }
+
+                        // Check if entry already exists
+                        var existingEntry = await connection.QueryFirstOrDefaultAsync<Entry>(
+                            "SELECT * FROM entries WHERE link = @Link AND feed_id = @FeedId",
+                            new { Link = link, FeedId = feedId }
+                        );
+
+                        if (existingEntry == null)
+                        {
+                            // Insert new entry
+                            await connection.ExecuteAsync(@"
+                                INSERT INTO entries (title, description, link, published, feed_id, read)
+                                VALUES (@Title, @Description, @Link, @Published, @FeedId, 0)",
+                                new
+                                {
+                                    Title = title,
+                                    Description = description,
+                                    Link = link,
+                                    Published = published,
+                                    FeedId = feedId
+                                }
+                            );
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Handle regular RSS/Atom feed
+                var reader = XmlReader.Create(new StringReader(content));
+                var syndicationFeed = SyndicationFeed.Load(reader);
+
+                foreach (var item in syndicationFeed.Items)
+                {
+                    // Check if entry already exists
+                    var existingEntry = await connection.QueryFirstOrDefaultAsync<Entry>(
+                        "SELECT * FROM entries WHERE link = @Link AND feed_id = @FeedId",
+                        new { Link = item.Links.FirstOrDefault()?.Uri.ToString(), FeedId = feedId }
+                    );
+
+                    if (existingEntry == null)
+                    {
+                        // Insert new entry
+                        await connection.ExecuteAsync(@"
+                            INSERT INTO entries (title, description, link, published, feed_id, read)
+                            VALUES (@Title, @Description, @Link, @Published, @FeedId, 0)",
+                            new
+                            {
+                                Title = item.Title.Text,
+                                Description = item.Summary?.Text,
+                                Link = item.Links.FirstOrDefault()?.Uri.ToString(),
+                                Published = item.PublishDate.DateTime,
+                                FeedId = feedId
+                            }
+                        );
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching entries for feed {feedName}: {ex.Message}");
+            throw;
         }
     }
 

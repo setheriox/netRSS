@@ -18,6 +18,9 @@
     [Parameter]
     public EventCallback<Entry> OnEntryFiltered { get; set; }
     
+    [Parameter]
+    public EventCallback<Entry> OnEntryRead { get; set; }
+    
     private List<Entry> Entries = new();
     private Feed? SelectedFeed;
     private Category? SelectedCategory;
@@ -244,6 +247,9 @@
                 connection.Execute(sql, new { read = newReadStatus, id = entry.id });
                 entry.read = newReadStatus;
                 Console.WriteLine($"Toggled read status for entry {entry.id} to {newReadStatus}");
+                
+                // Notify parent component about the read status change
+                OnEntryRead.InvokeAsync(entry);
             }
         }
         catch (Exception ex) {
@@ -311,6 +317,9 @@
                 connection.Execute(sql, new { id = entry.id });
                 entry.read = 1;
                 Console.WriteLine($"Marked entry {entry.id} as read");
+                
+                // Notify parent component about the read status change
+                OnEntryRead.InvokeAsync(entry);
             }
         }
         catch (Exception ex) {
@@ -465,7 +474,7 @@
                                 }
                             </button>
                         </div>
-                        <div class="rss-entry-feed-name" style="background-color: @entry.feed_color">
+                        <div class="rss-entry-feed-name" style="background-color: @entry.feed_color" @onclick="() => FilterByFeed(new Feed { id = entry.feed_id, name = entry.feed_name })">
                             <span class="feed-name-text">@entry.feed_name</span>
                             @if (SelectedFeed != null || SelectedCategory != null) {
                                 <span class="feed-badge-remove" @onclick:stopPropagation="true" @onclick="() => RemoveFeedFilter()">×</span>

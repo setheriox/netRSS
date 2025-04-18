@@ -239,8 +239,8 @@
                     AddLog($"Fetching feed: {feed.name} ({feed.url})", "info");
                     
                     // Add retry logic for failed requests
-                    HttpResponseMessage response = null;
-                    string content = null;
+                    HttpResponseMessage? response = null;
+                    string? content = null;
                     int maxRetries = 3;
                     int currentTry = 0;
                     
@@ -256,7 +256,7 @@
                                 await Task.Delay(1000 * currentTry); // Exponential backoff
                             }
                         }
-                        catch (Exception ex) {
+                        catch {
                             currentTry++;
                             if (currentTry >= maxRetries) throw;
                             await Task.Delay(1000 * currentTry);
