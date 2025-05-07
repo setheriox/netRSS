@@ -5,6 +5,8 @@
 @using Microsoft.Data.Sqlite
 @using Microsoft.AspNetCore.Components
 @using System.IO
+@using System.Threading
+@implements IDisposable
 @rendermode InteractiveServer
 
 @code {
@@ -27,9 +29,36 @@
     private bool ShowUnreadOnly = false;
     private bool ShowStarredOnly = false;
 
+    // Timer for periodic refresh
+    private Timer? refreshTimer;
+    
     protected override void OnInitialized()
     {
         LoadCategoriesAndFeeds();
+        InitializeRefreshTimer();
+    }
+    
+    private void InitializeRefreshTimer()
+    {
+        // Set up a timer to refresh feed counts every 30 seconds
+        refreshTimer = new Timer(async _ => 
+        {
+            try 
+            {
+                await InvokeAsync(() => 
+                {
+                    Console.WriteLine("Auto-refreshing feed counts");
+                    LoadCategoriesAndFeeds();
+                    StateHasChanged();
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error during refresh: {ex.Message}");
+            }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        
+        Console.WriteLine("Feed refresh timer initialized");
     }
     
     // Method to update counts when an entry is filtered
@@ -230,6 +259,54 @@
         StateHasChanged();
     }
     
+    public async Task UpdateFeedCounts(int feedId, int categoryId)
+    {
+        try
+        {
+            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string connectionString = $"Data Source={dbPath}";
+            using (var connection = new SqliteConnection(connectionString))
+            {
+                connection.Open();
+                
+                // Find the feed in our collection
+                var feed = Categories
+                    .SelectMany(c => c.Feeds)
+                    .FirstOrDefault(f => f.id == feedId);
+                
+                if (feed != null)
+                {
+                    // Update feed counts
+                    string sqlTotal = "SELECT COUNT(*) FROM entries WHERE feed_id = @FeedId AND filtered = 0";
+                    feed.TotalCount = connection.ExecuteScalar<int>(sqlTotal, new { FeedId = feed.id });
+                    
+                    string sqlUnread = "SELECT COUNT(*) FROM entries WHERE feed_id = @FeedId AND read = 0 AND filtered = 0";
+                    feed.UnreadCount = connection.ExecuteScalar<int>(sqlUnread, new { FeedId = feed.id });
+                    
+                    // Find and update the category
+                    var category = Categories.FirstOrDefault(c => c.id == feed.category_id);
+                    if (category != null)
+                    {
+                        // Recalculate category unread count
+                        category.UnreadCount = category.Feeds.Sum(f => f.UnreadCount);
+                    }
+                    
+                    Console.WriteLine($"Updated counts for feed {feed.name}: Total={feed.TotalCount}, Unread={feed.UnreadCount}");
+                }
+                else
+                {
+                    // If we couldn't find the feed, it might be new or the sidebar hasn't been loaded yet
+                    // In this case, we'll do a full reload
+                    LoadCategoriesAndFeeds();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating feed counts: {ex.Message}");
+        }
+    }
+    
     private void LoadCategoriesAndFeeds()
     {
         string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
@@ -284,6 +361,12 @@
         Console.WriteLine("View All clicked - showing all entries");
         OnCategorySelected.InvokeAsync(null);
         OnFeedSelected.InvokeAsync(null);
+    }
+    
+    public void Dispose()
+    {
+        // Dispose timer if it exists
+        refreshTimer?.Dispose();
     }
 }
 
@@ -349,4 +432,3 @@
         }
     </div>
 </div>
-

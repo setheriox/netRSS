@@ -9,6 +9,8 @@
 @using System.Text.RegularExpressions
 @using System.IO
 @inject IJSRuntime JSRuntime
+@inject IDbConnectionFactory DbConnectionFactory
+@implements IDisposable
 @rendermode InteractiveServer
 
 @code {
@@ -28,10 +30,23 @@
     private string FilterColor = "";
     private bool ShowUnreadOnly = false;
     private bool ShowStarredOnly = false;
+    private bool AutoHideRead = false;
+    private Dictionary<int, System.Timers.Timer> AutoHideTimers = new();
     
     // Pagination properties
     private int CurrentPage = 1;
-    private int PageSize = 50;
+    private int _pageSize = 25;
+    private int PageSize {
+        get => _pageSize;
+        set {
+            if (_pageSize != value) {
+                _pageSize = value;
+                SavePageSize(value).ConfigureAwait(false);
+                CurrentPage = 1;
+                LoadEntries();
+            }
+        }
+    }
     private int TotalEntries = 0;
     private int TotalPages => (int)Math.Ceiling(TotalEntries / (double)PageSize);
     
@@ -45,8 +60,63 @@
     private int CurrentEntryIndex = 0;
     */
 
-    protected override void OnInitialized() {
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSettings();
         LoadEntries();
+    }
+
+    private async Task LoadSettings()
+    {
+        try
+        {
+            using var connection = DbConnectionFactory.CreateConnection();
+            connection.Open();
+            
+            var itemsPerPageSetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'items_per_page'");
+            
+            var autoHideReadSetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'auto_hide_read'");
+            
+            if (itemsPerPageSetting != null && int.TryParse(itemsPerPageSetting.Value, out int pageSize))
+            {
+                _pageSize = pageSize;
+            }
+            
+            if (autoHideReadSetting != null)
+            {
+                AutoHideRead = autoHideReadSetting.Value == "1";
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading settings: {ex.Message}");
+        }
+    }
+
+    private async Task SavePageSize(int newSize)
+    {
+        try
+        {
+            using var connection = DbConnectionFactory.CreateConnection();
+            connection.Open();
+            
+            await connection.ExecuteAsync(
+                "INSERT OR REPLACE INTO settings (key, value, type, description) VALUES (@Key, @Value, @Type, @Description)",
+                new Setting
+                {
+                    Key = "items_per_page",
+                    Value = newSize.ToString(),
+                    Type = "number",
+                    Description = "Number of items to display per page"
+                }
+            );
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving page size: {ex.Message}");
+        }
     }
 
     // Alternative modal state implementation
@@ -248,6 +318,9 @@
                 entry.read = newReadStatus;
                 Console.WriteLine($"Toggled read status for entry {entry.id} to {newReadStatus}");
                 
+                // Start auto-hide timer if needed
+                StartAutoHideTimer(entry);
+                
                 // Notify parent component about the read status change
                 OnEntryRead.InvokeAsync(entry);
             }
@@ -292,16 +365,33 @@
         StateHasChanged();
     }
 
-    private void ToggleDescription(Entry entry) {
+    private void ToggleDescription(Entry entry)
+    {
         // Mark as read if not already read
-        if (entry.read == 0) {
+        if (entry.read == 0)
+        {
             MarkEntryAsRead(entry);
         }
         
-        // Toggle description visibility
-        if (ExpandedEntryId == entry.id) {
+        // If we're collapsing the current entry
+        if (ExpandedEntryId == entry.id)
+        {
             ExpandedEntryId = null;
-        } else {
+            // Start auto-hide timer for the entry we just collapsed
+            StartAutoHideTimer(entry);
+        }
+        else
+        {
+            // If there was a previously expanded entry
+            if (ExpandedEntryId.HasValue)
+            {
+                var previousEntry = Entries.FirstOrDefault(e => e.id == ExpandedEntryId.Value);
+                if (previousEntry != null)
+                {
+                    // Start auto-hide timer for the previously expanded entry
+                    StartAutoHideTimer(previousEntry);
+                }
+            }
             ExpandedEntryId = entry.id;
         }
         StateHasChanged();
@@ -317,6 +407,9 @@
                 connection.Execute(sql, new { id = entry.id });
                 entry.read = 1;
                 Console.WriteLine($"Marked entry {entry.id} as read");
+                
+                // Start auto-hide timer if needed
+                StartAutoHideTimer(entry);
                 
                 // Notify parent component about the read status change
                 OnEntryRead.InvokeAsync(entry);
@@ -421,32 +514,88 @@
             GoToPage(CurrentPage - 1);
         }
     }
+
+    private void HandlePageSizeChange(ChangeEventArgs e) {
+        if (int.TryParse(e.Value?.ToString(), out int newPageSize)) {
+            PageSize = newPageSize;
+            CurrentPage = 1;
+            LoadEntries();
+        }
+    }
+
+    private void StartAutoHideTimer(Entry entry)
+    {
+        // Don't start timer if conditions aren't met
+        if (!AutoHideRead || !ShowUnreadOnly || entry.read != 1) return;
+        
+        // Don't auto-hide if this entry is currently expanded
+        if (ExpandedEntryId == entry.id) return;
+
+        if (AutoHideTimers.ContainsKey(entry.id))
+        {
+            AutoHideTimers[entry.id].Dispose();
+        }
+
+        var timer = new System.Timers.Timer(5000); // 5 seconds
+        timer.Elapsed += async (sender, e) =>
+        {
+            await InvokeAsync(() =>
+            {
+                // Double check that this entry isn't expanded before removing it
+                if (ExpandedEntryId != entry.id)
+                {
+                    Entries.Remove(entry);
+                    timer.Dispose();
+                    AutoHideTimers.Remove(entry.id);
+                    StateHasChanged();
+                }
+            });
+        };
+        timer.AutoReset = false;
+        timer.Start();
+
+        AutoHideTimers[entry.id] = timer;
+    }
+
+    public void Dispose()
+    {
+        foreach (var timer in AutoHideTimers.Values)
+        {
+            timer.Dispose();
+        }
+        AutoHideTimers.Clear();
+    }
 }
 
 <div class="feed-content">
     <div class="feed-entries">
         <div class="feed-entries-header">
-        
-            @if (TotalPages > 1) {
-                <div class="pagination">
-                    <button class="btn-page" @onclick="PreviousPage" disabled="@(CurrentPage == 1)">
-                        ← Previous
-                    </button>
-                    <span class="page-info">Page @CurrentPage of @TotalPages</span>
-                    <button class="btn-page" @onclick="NextPage" disabled="@(CurrentPage == TotalPages)">
-                        Next →
-                    </button>
-                </div>
-            }
-            <h3>
+            <div class="feed-entries-title">
                 <span style="@(string.IsNullOrEmpty(FilterColor) ? "" : $"color: {FilterColor}")">
                     @FilterTitle (@TotalEntries)
                 </span>
-                @if (SelectedFeed != null || SelectedCategory != null) {
-                    <button class="btn-clear-filter" @onclick="RemoveFeedFilter">Clear Filter</button>
+                @if (TotalPages > 1) {
+                    <div class="pagination">
+                        <button class="btn-page" @onclick="PreviousPage" disabled="@(CurrentPage == 1)">
+                            ← Previous
+                        </button>
+                        <span class="page-info">Page @CurrentPage of @TotalPages</span>
+                        <button class="btn-page" @onclick="NextPage" disabled="@(CurrentPage == TotalPages)">
+                            Next →
+                        </button>
+                    </div>
                 }
-            </h3>
-            
+                <div class="page-size-selector">
+                    <label for="pageSize">Items per page:</label>
+                    <select id="pageSize" @bind="PageSize" @bind:event="onchange">
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                    </select>
+                </div>
+            </div>
         </div>
         
         <div class="entries-list">

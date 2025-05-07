@@ -21,4 +21,9 @@ function handleKeyDown(event) {
             dotNetRef.invokeMethodAsync('HandleKeyPress', event.key);
             break;
     }
-} 
+}
+
+// Get the base URL for SignalR connections
+window.getBaseUrl = () => {
+    return document.baseURI || window.location.origin + '/';
+}; 

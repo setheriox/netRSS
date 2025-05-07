@@ -33,10 +33,16 @@
 }
 
 .form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: var(--dark-text);
-    font-size: var(--app-font-size);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.form-group input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
 }
 
 .form-select, .form-input {
@@ -231,4 +237,11 @@
 
 .log-message {
     flex: 1;
+}
+
+.setting-description {
+    font-size: 0.9em;
+    color: var(--dark-secondary-text);
+    margin-top: 0.25rem;
+    margin-left: 1.5rem;
 } 

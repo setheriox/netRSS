@@ -74,7 +74,22 @@
             }
         </div>
     </div>
-    
+
+    <div class="settings-section">
+        <h4>Display Settings</h4>
+        <div class="form-row">
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" @bind="AutoHideRead" />
+                    Auto-hide read items when viewing unread items
+                </label>
+                <div class="setting-description">
+                    When enabled, read items will automatically hide after 5 seconds when viewing unread items.
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="settings-general-refresh">
         <button class="btn-refresh" @onclick="RefreshFeeds" disabled="@isRefreshing">
             @if (isRefreshing) {
@@ -118,6 +133,7 @@
     private int FontSize { get; set; } = 14;
     private bool isSaving = false;
     private bool fontSettingsSaved = false;
+    private bool AutoHideRead { get; set; } = false;
     
     // Refresh Feeds
     private bool isRefreshing = false;
@@ -140,6 +156,9 @@
                 
             var fontSizeSetting = await connection.QueryFirstOrDefaultAsync<Setting>(
                 "SELECT * FROM settings WHERE key = 'font_size'");
+
+            var autoHideReadSetting = await connection.QueryFirstOrDefaultAsync<Setting>(
+                "SELECT * FROM settings WHERE key = 'auto_hide_read'");
                 
             if (fontFamilySetting != null) {
                 FontFamily = fontFamilySetting.Value;
@@ -148,10 +167,13 @@
             if (fontSizeSetting != null && int.TryParse(fontSizeSetting.Value, out int size)) {
                 FontSize = size;
             }
+
+            if (autoHideReadSetting != null) {
+                AutoHideRead = autoHideReadSetting.Value == "1";
+            }
         }
         catch (Exception ex) {
             Console.WriteLine($"Error loading settings: {ex.Message}");
-            // If settings table doesn't exist or other error, use defaults
         }
     }
     
@@ -183,6 +205,17 @@
                     Value = FontSize.ToString(), 
                     Type = "number", 
                     Description = "Base font size in points" 
+                }
+            );
+
+            // Update auto hide read setting
+            await connection.ExecuteAsync(
+                "INSERT OR REPLACE INTO settings (key, value, type, description) VALUES (@Key, @Value, @Type, @Description)",
+                new Setting { 
+                    Key = "auto_hide_read", 
+                    Value = AutoHideRead ? "1" : "0", 
+                    Type = "boolean", 
+                    Description = "Automatically hide read items when viewing unread items" 
                 }
             );
             

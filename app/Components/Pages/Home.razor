@@ -1,222 +1,168 @@
-﻿@page "/"
-@using Microsoft.AspNetCore.Components
-@using System.Data
-@using Dapper
-@using netRSS.Models
-@using netRSS.Services
-@inject IDbConnectionFactory DbConnectionFactory
-@inject FeedValidationService FeedValidationService
+@page "/"
+@using System.IO
+@using System.Text.RegularExpressions
+@inject IJSRuntime JSRuntime
 @rendermode InteractiveServer
 
-<PageTitle>Feed Status - netRSS</PageTitle>
+<PageTitle>netRSS</PageTitle>
 
-<div class="feed-status-container">
-    <h1>Feed Status Dashboard</h1>
+<div class="home-container">
+    <h1>Welcome to netRSS</h1>
     
-    <div class="dashboard-actions">
-        <button class="btn-refresh" @onclick="LoadFeedStatus" disabled="@isLoading">
-            @if (isLoading)
-            {
-                <span>Loading...</span>
-            }
-            else
-            {
-                <span>Refresh Status</span>
-            }
-        </button>
+    <div class="tabs-container">
+        <div class="tabs-header">
+            <button class="tab-button @GetActiveClass("changelog")" @onclick="@(() => SetActiveTab("changelog"))">
+                Change Log
+            </button>
+            <button class="tab-button @GetActiveClass("highlights")" @onclick="@(() => SetActiveTab("highlights"))">
+                Highlights
+            </button>
+        </div>
         
-        <button class="btn-validate-all" @onclick="ValidateAllFeeds" disabled="@isValidating">
-            @if (isValidating)
+        <div class="tab-content">
+            @if (activeTab == "changelog")
             {
-                <span>Validating All Feeds...</span>
-            }
-            else
-            {
-                <span>Validate All Feeds</span>
-            }
-        </button>
-    </div>
-    
-    <div class="dashboard-stats">
-        <div class="stat-card">
-            <div class="stat-value">@feedStatuses.Count</div>
-            <div class="stat-label">Total Feeds</div>
-        </div>
-        <div class="stat-card success">
-            <div class="stat-value">@feedStatuses.Count(f => f.Status == "ok")</div>
-            <div class="stat-label">Healthy</div>
-        </div>
-        <div class="stat-card warning">
-            <div class="stat-value">@feedStatuses.Count(f => f.Status != "ok" && !f.IsCritical)</div>
-            <div class="stat-label">Warning</div>
-        </div>
-        <div class="stat-card error">
-            <div class="stat-value">@feedStatuses.Count(f => f.Status != "ok" && f.IsCritical)</div>
-            <div class="stat-label">Critical</div>
-        </div>
-    </div>
-    
-    @if (feedStatuses.Any())
-    {
-        <div class="feed-status-table-container">
-            <table class="feed-status-table">
-                <thead>
-                    <tr>
-                        <th>Feed</th>
-                        <th>URL</th>
-                        <th>Status</th>
-                        <th>Last Checked</th>
-                        <th>Failures</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var status in feedStatuses.OrderByDescending(f => f.IsCritical).ThenByDescending(f => f.Status != "ok").ThenBy(f => f.FeedName))
+                <div class="changelog-container">
+                    @if (!string.IsNullOrEmpty(changelogContent))
                     {
-                        <tr class="@GetStatusRowClass(status)">
-                            <td>@status.FeedName</td>
-                            <td class="url-cell">
-                                <div class="url-wrapper" title="@status.FeedUrl">@status.FeedUrl</div>
-                            </td>
-                            <td>
-                                <div class="status-badge @GetStatusClass(status)">
-                                    @GetStatusText(status)
-                                </div>
-                            </td>
-                            <td>@status.LastChecked.ToString("g")</td>
-                            <td>@status.FailCount</td>
-                            <td>
-                                <button class="btn-validate" @onclick="() => ValidateFeed(status)" title="Validate Feed">
-                                    Check
-                                </button>
-                            </td>
-                        </tr>
-                        @if (status.Status != "ok")
-                        {
-                            <tr class="error-details @GetStatusRowClass(status)">
-                                <td colspan="6">
-                                    <div class="error-message">@status.ErrorMessage</div>
-                                </td>
-                            </tr>
-                        }
+                        <div class="markdown-content">
+                            @((MarkupString)changelogHtml)
+                        </div>
                     }
-                </tbody>
-            </table>
+                    else
+                    {
+                        <div class="loading-content">
+                            Loading changelog...
+                        </div>
+                    }
+                </div>
+            }
+            else if (activeTab == "highlights")
+            {
+                <div class="highlights-container">
+                    <h2>Application Highlights</h2>
+                    
+                    <div class="highlights-grid">
+                        <div class="highlight-card">
+                            <div class="highlight-icon">📰</div>
+                            <h3>RSS Feed Management</h3>
+                            <p>Subscribe to your favorite websites and organize feeds by categories.</p>
+                        </div>
+                        
+                        <div class="highlight-card">
+                            <div class="highlight-icon">🔍</div>
+                            <h3>Content Search</h3>
+                            <p>Quickly find articles and content across all your subscriptions.</p>
+                        </div>
+                        
+                        <div class="highlight-card">
+                            <div class="highlight-icon">⚡</div>
+                            <h3>Real-time Updates</h3>
+                            <p>Automatic background refreshing keeps your content fresh.</p>
+                        </div>
+                        
+                        <div class="highlight-card">
+                            <div class="highlight-icon">📊</div>
+                            <h3>Feed Status Dashboard</h3>
+                            <p>Monitor feed health and quickly identify issues.</p>
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
-    }
-    else if (isLoading)
-    {
-        <div class="loading-message">
-            <p>Loading feed status...</p>
-        </div>
-    }
-    else
-    {
-        <div class="empty-state">
-            <p>No feeds found. Add some feeds in the Settings page.</p>
-        </div>
-    }
+    </div>
 </div>
 
 @code {
-    private List<FeedStatus> feedStatuses = new List<FeedStatus>();
-    private bool isLoading = false;
-    private bool isValidating = false;
+    private string activeTab = "changelog";
+    private string changelogContent = "";
+    private string changelogHtml = "";
     
     protected override async Task OnInitializedAsync()
     {
-        await LoadFeedStatus();
+        await LoadChangelogContent();
     }
     
-    private async Task LoadFeedStatus()
+    private string GetActiveClass(string tabName)
     {
-        isLoading = true;
+        return activeTab == tabName ? "active" : "";
+    }
+    
+    private void SetActiveTab(string tabName)
+    {
+        activeTab = tabName;
         StateHasChanged();
-        
+    }
+    
+    private async Task LoadChangelogContent()
+    {
         try
         {
-            using var connection = DbConnectionFactory.CreateConnection();
-            connection.Open();
+            // List of possible locations for the CHANGELOG.md file
+            List<string> possiblePaths = new List<string>
+            {
+                // Docker volume mount location
+                "/app/CHANGELOG.md",
+                
+                // Root of the project (Docker container)
+                Path.Combine(Directory.GetCurrentDirectory(), "..", "CHANGELOG.md"),
+                
+                // Inside the app directory (Docker container)
+                Path.Combine(Directory.GetCurrentDirectory(), "CHANGELOG.md"),
+                
+                // Two directories up (local development)
+                Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "CHANGELOG.md")
+            };
             
-            // Create join query to get feed information along with status
-            var results = await connection.QueryAsync<FeedStatus>(@"
-                SELECT fs.*, f.name AS FeedName, f.url AS FeedUrl
-                FROM feed_status fs
-                JOIN feeds f ON fs.feed_id = f.id
-                ORDER BY fs.is_critical DESC, fs.status DESC, f.name ASC
-            ");
+            bool foundFile = false;
             
-            feedStatuses = results.ToList();
+            foreach (string path in possiblePaths)
+            {
+                Console.WriteLine($"Looking for changelog at: {path}");
+                
+                if (File.Exists(path))
+                {
+                    Console.WriteLine($"Found changelog at: {path}");
+                    changelogContent = await File.ReadAllTextAsync(path);
+                    changelogHtml = ConvertMarkdownToHtml(changelogContent);
+                    foundFile = true;
+                    break;
+                }
+            }
+            
+            if (!foundFile)
+            {
+                Console.WriteLine("Changelog file not found in any of the expected locations");
+                changelogContent = "# Changelog not found";
+                changelogHtml = "<h1>Changelog not found</h1><p>Could not locate the CHANGELOG.md file in any of the expected locations.</p>";
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading feed status: {ex.Message}");
-        }
-        finally
-        {
-            isLoading = false;
-            StateHasChanged();
+            Console.WriteLine($"Error loading changelog: {ex.Message}");
+            changelogContent = $"Error loading changelog: {ex.Message}";
+            changelogHtml = $"<p class='error'>Error loading changelog: {ex.Message}</p>";
         }
     }
     
-    private async Task ValidateAllFeeds()
+    private string ConvertMarkdownToHtml(string markdown)
     {
-        isValidating = true;
-        StateHasChanged();
+        // Very simple markdown converter - for a real app you might want to use a proper library
+        string html = markdown;
         
-        try
-        {
-            await FeedValidationService.ValidateAllFeeds();
-            await LoadFeedStatus(); // Refresh the status display
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error validating feeds: {ex.Message}");
-        }
-        finally
-        {
-            isValidating = false;
-            StateHasChanged();
-        }
-    }
-    
-    private async Task ValidateFeed(FeedStatus status)
-    {
-        try
-        {
-            await FeedValidationService.UpdateFeedStatus(status.FeedId, status.FeedUrl, status.FeedName);
-            await LoadFeedStatus(); // Refresh the status display
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error validating feed: {ex.Message}");
-        }
-    }
-    
-    private string GetStatusRowClass(FeedStatus status)
-    {
-        if (status.Status != "ok")
-        {
-            return status.IsCritical ? "critical-row" : "warning-row";
-        }
-        return "ok-row";
-    }
-    
-    private string GetStatusClass(FeedStatus status)
-    {
-        if (status.Status != "ok")
-        {
-            return status.IsCritical ? "critical" : "warning";
-        }
-        return "ok";
-    }
-    
-    private string GetStatusText(FeedStatus status)
-    {
-        if (status.Status != "ok")
-        {
-            return status.IsCritical ? "Critical" : "Warning";
-        }
-        return "OK";
+        // Convert headers
+        html = Regex.Replace(html, @"^# (.*?)$", "<h1>$1</h1>", RegexOptions.Multiline);
+        html = Regex.Replace(html, @"^## (.*?)$", "<h2>$1</h2>", RegexOptions.Multiline);
+        html = Regex.Replace(html, @"^### (.*?)$", "<h3>$1</h3>", RegexOptions.Multiline);
+        
+        // Convert unordered lists
+        html = Regex.Replace(html, @"^- (.*?)$", "<li>$1</li>", RegexOptions.Multiline);
+        html = html.Replace("<li>", "<ul><li>").Replace("</li>\n", "</li></ul>\n");
+        html = Regex.Replace(html, @"<\/ul>\s*<ul>", "", RegexOptions.Multiline);
+        
+        // Fix any remaining newlines to be proper HTML breaks
+        html = html.Replace("\n\n", "<br><br>");
+        
+        return html;
     }
 }
