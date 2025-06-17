@@ -207,7 +207,7 @@
             int totalImported = 0;
             int totalSkipped = 0;
             
-            if (body.Count > 0 && body[0] != null)
+            if (body?.Count > 0 && body[0]?.ChildNodes != null)
             {
                 var topLevelOutlines = body[0].ChildNodes;
                 
