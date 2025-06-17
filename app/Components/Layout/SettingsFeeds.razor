@@ -579,8 +579,8 @@
                 // Get the newly created feed ID
                 feedId = await connection.QuerySingleAsync<int>("SELECT last_insert_rowid()");
                 
-                // Update feed status
-                await FeedValidationService.UpdateFeedStatus(feedId, FeedUrl, FeedName);
+                // Update feed status using already validated results to avoid double validation
+                await FeedValidationService.UpdateFeedStatus(feedId, FeedUrl, FeedName, isValid, errorMessage);
             }
             else
             {
@@ -588,8 +588,8 @@
                 string sql = "UPDATE feeds SET name = @Name, url = @Url, category_id = @CategoryId WHERE id = @Id";
                 await connection.ExecuteAsync(sql, new { Id = CurrentFeed.id, Name = FeedName, Url = FeedUrl, CategoryId = categoryId });
                 
-                // Update feed status
-                await FeedValidationService.UpdateFeedStatus(CurrentFeed.id, FeedUrl, FeedName);
+                // Update feed status using already validated results to avoid double validation
+                await FeedValidationService.UpdateFeedStatus(CurrentFeed.id, FeedUrl, FeedName, isValid, errorMessage);
                 feedId = CurrentFeed.id;
             }
 
@@ -610,6 +610,9 @@
     {
         try
         {
+            // Resolve FeedBurner URLs before making the request
+            string actualFeedUrl = await FeedValidationService.ResolveFeedBurnerUrl(feedUrl);
+            
             using var httpClient = HttpClientFactory.CreateClient();
             // Add browser-like headers to avoid 403 errors
             httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
@@ -629,7 +632,7 @@
             {
                 try
                 {
-                    response = await httpClient.GetAsync(feedUrl);
+                    response = await httpClient.GetAsync(actualFeedUrl);
                     if (response.IsSuccessStatusCode)
                     {
                         content = await response.Content.ReadAsStringAsync();
@@ -653,6 +656,9 @@
             {
                 throw new Exception($"Failed to fetch feed after {maxRetries} attempts. Status: {response?.StatusCode}");
             }
+
+            // Clean up the XML content to handle malformed DOCTYPE declarations
+            content = CleanXmlContent(content);
 
             var xmlDoc = new XmlDocument();
             xmlDoc.LoadXml(content);
@@ -746,6 +752,53 @@
         {
             Console.WriteLine($"Error fetching entries for feed {feedName}: {ex.Message}");
             throw;
+        }
+    }
+
+    private string CleanXmlContent(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return content;
+
+        try
+        {
+            // Handle common malformed DOCTYPE issues
+            // Replace malformed 'doctype' with proper 'DOCTYPE'
+            content = System.Text.RegularExpressions.Regex.Replace(
+                content, 
+                @"<\s*doctype\s+", 
+                "<!DOCTYPE ", 
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            );
+
+            // Remove problematic DOCTYPE declarations entirely if they're still malformed
+            content = System.Text.RegularExpressions.Regex.Replace(
+                content,
+                @"<!\s*DOCTYPE[^>]*>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Multiline
+            );
+
+            // Remove XML processing instructions that might be malformed
+            content = System.Text.RegularExpressions.Regex.Replace(
+                content,
+                @"<\?\s*xml[^>]*\?>",
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            );
+
+            // Ensure the content starts with proper XML declaration
+            if (!content.TrimStart().StartsWith("<?xml", StringComparison.OrdinalIgnoreCase))
+            {
+                content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + content.TrimStart();
+            }
+
+            return content;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error cleaning XML content: {ex.Message}");
+            return content; // Return original content if cleaning fails
         }
     }
 

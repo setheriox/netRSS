@@ -7,10 +7,13 @@ using System.Net.Http;
 using System.Collections.Generic;
 using System.Xml;
 using System.Diagnostics;
+using System.Data;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using netRSS.Models;
+using netRSS.Services;
 using System.ServiceModel.Syndication;
 using System.IO;
 
@@ -19,16 +22,19 @@ public class RssBackgroundService : BackgroundService
     private readonly ILogger<RssBackgroundService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IDbConnectionFactory _dbConnectionFactory;
+    private readonly FeedValidationService _feedValidationService;
     private readonly TimeSpan _interval = TimeSpan.FromMinutes(10);
 
     public RssBackgroundService(
         ILogger<RssBackgroundService> logger,
         IHttpClientFactory httpClientFactory,
-        IDbConnectionFactory dbConnectionFactory)
+        IDbConnectionFactory dbConnectionFactory,
+        FeedValidationService feedValidationService)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _dbConnectionFactory = dbConnectionFactory;
+        _feedValidationService = feedValidationService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -97,6 +103,13 @@ public class RssBackgroundService : BackgroundService
                 {
                     _logger.LogInformation($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Fetching feed: {feed.name} ({feed.url})");
                     
+                    // Resolve FeedBurner URLs before making the request
+                    string actualFeedUrl = await _feedValidationService.ResolveFeedBurnerUrl(feed.url);
+                    if (actualFeedUrl != feed.url)
+                    {
+                        _logger.LogInformation($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] FeedBurner URL resolved from {feed.url} to {actualFeedUrl}");
+                    }
+                    
                     // Add retry logic for failed requests
                     HttpResponseMessage? response = null;
                     string? content = null;
@@ -107,7 +120,7 @@ public class RssBackgroundService : BackgroundService
                     {
                         try
                         {
-                            response = await httpClient.GetAsync(feed.url);
+                            response = await httpClient.GetAsync(actualFeedUrl);
                             if (response.IsSuccessStatusCode)
                             {
                                 content = await response.Content.ReadAsStringAsync();
@@ -132,7 +145,10 @@ public class RssBackgroundService : BackgroundService
                         throw new Exception($"Failed to fetch feed after {maxRetries} attempts. Status: {response?.StatusCode}");
                     }
                     
-                    _logger.LogInformation($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Downloaded {content.Length} bytes from {feed.url}");
+                    _logger.LogInformation($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Downloaded {content.Length} bytes from {actualFeedUrl}");
+                    
+                    // Clean up the XML content to handle malformed DOCTYPE declarations
+                    content = CleanXmlContent(content);
                     
                     var xmlDoc = new XmlDocument();
                     xmlDoc.LoadXml(content);
@@ -346,6 +362,53 @@ public class RssBackgroundService : BackgroundService
         {
             _logger.LogError($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error processing feeds: {ex.Message}");
             _logger.LogError($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Stack trace: {ex.StackTrace}");
+        }
+    }
+
+    private string CleanXmlContent(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return content;
+
+        try
+        {
+            // Handle common malformed DOCTYPE issues
+            // Replace malformed 'doctype' with proper 'DOCTYPE'
+            content = System.Text.RegularExpressions.Regex.Replace(
+                content, 
+                @"<\s*doctype\s+", 
+                "<!DOCTYPE ", 
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            );
+
+            // Remove problematic DOCTYPE declarations entirely if they're still malformed
+            content = System.Text.RegularExpressions.Regex.Replace(
+                content,
+                @"<!\s*DOCTYPE[^>]*>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Multiline
+            );
+
+            // Remove XML processing instructions that might be malformed
+            content = System.Text.RegularExpressions.Regex.Replace(
+                content,
+                @"<\?\s*xml[^>]*\?>",
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            );
+
+            // Ensure the content starts with proper XML declaration
+            if (!content.TrimStart().StartsWith("<?xml", StringComparison.OrdinalIgnoreCase))
+            {
+                content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + content.TrimStart();
+            }
+
+            return content;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Error cleaning XML content: {ex.Message}");
+            return content; // Return original content if cleaning fails
         }
     }
 }

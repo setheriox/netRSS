@@ -22,8 +22,8 @@ builder.Services.AddSingleton<IDbConnectionFactory>(sp =>
     return new SqliteConnectionFactory($"Data Source={dbPath}");
 });
 
-// Register feed validation service
-builder.Services.AddScoped<netRSS.Services.FeedValidationService>();
+// Register feed validation service as singleton to be compatible with background service
+builder.Services.AddSingleton<netRSS.Services.FeedValidationService>();
 
 // Register the RSS Background Service
 builder.Services.AddHostedService<RssBackgroundService>();
@@ -81,7 +81,7 @@ void EnsureDatabaseExists(string dbPath)
     dbConnection.Open();
 
     // Read the SQL schema from the rss.sql file
-    string sqlFilePath = Path.Combine(Directory.GetParent(Directory.GetCurrentDirectory())!.FullName, "database", "rss.sql");
+    string sqlFilePath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.sql");
     
     if (!File.Exists(sqlFilePath))
     {
