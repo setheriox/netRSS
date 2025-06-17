@@ -1,5 +1,20 @@
 # netRSS Changelog
 
+## Version 1.2.0 - 2025-05-10
+
+### Added
+- New settings for items per page and auto-hide read items
+- Improved feed content display with configurable pagination
+- Auto-hide functionality for read items with configurable delay
+
+### Changed
+- Updated database schema to support new settings
+- Enhanced settings UI with new options for feed display preferences
+
+### Improved
+- Better handling of null references in OPML import
+- More robust feed content display with user-configurable options
+
 ## Version 1.1.0 - 2025-05-07
 
 ### Added
