@@ -79,11 +79,33 @@
         </div>
     }
     
-    @if (FilteredEntries.Count > 0) {
+    @if (TotalFilteredEntries > 0) {
         <div class="filtered-entries-container">
-            <h3>Filtered Entries (@FilteredEntries.Count)</h3>
+            <div class="filtered-entries-header">
+                <h3>Filtered Entries (@TotalFilteredEntries)</h3>
+                @if (TotalPages > 1) {
+                    <div class="pagination">
+                        <button class="btn-page" @onclick="PreviousPage" disabled="@(CurrentPage == 1)">
+                            ← Previous
+                        </button>
+                        <span class="page-info">Page @CurrentPage of @TotalPages</span>
+                        <button class="btn-page" @onclick="NextPage" disabled="@(CurrentPage == TotalPages)">
+                            Next →
+                        </button>
+                    </div>
+                }
+                <div class="page-size-selector">
+                    <label for="pageSize">Items per page:</label>
+                    <select id="pageSize" value="@PageSize" @onchange="HandlePageSizeChange">
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+            </div>
             <div class="filtered-entries-list">
-                @foreach (var entry in FilteredEntries) {
+                @foreach (var entry in PaginatedFilteredEntries) {
                     <div class="filtered-entry">
                         <div class="filtered-entry-header">
                             <div class="filtered-entry-feed">@entry.feed_name</div>
@@ -102,6 +124,17 @@
                     </div>
                 }
             </div>
+            @if (TotalPages > 1) {
+                <div class="pagination pagination-bottom">
+                    <button class="btn-page" @onclick="PreviousPage" disabled="@(CurrentPage == 1)">
+                        ← Previous
+                    </button>
+                    <span class="page-info">Page @CurrentPage of @TotalPages</span>
+                    <button class="btn-page" @onclick="NextPage" disabled="@(CurrentPage == TotalPages)">
+                        Next →
+                    </button>
+                </div>
+            }
         </div>
     }
 </div>
@@ -184,8 +217,15 @@
 @code {
     private List<ContentFilter> Filters { get; set; } = new();
     private List<Entry> FilteredEntries { get; set; } = new();
+    private List<Entry> PaginatedFilteredEntries { get; set; } = new();
     private bool IsLoading { get; set; } = true;
     private string LoadError { get; set; } = string.Empty;
+
+    // Pagination properties
+    private int CurrentPage = 1;
+    private int PageSize = 25;
+    private int TotalFilteredEntries = 0;
+    private int TotalPages => (int)Math.Ceiling(TotalFilteredEntries / (double)PageSize);
 
     // Edit modal state
     private bool _showEditModal = false;
@@ -259,6 +299,19 @@
     {
         try {
             using var connection = DbConnectionFactory.CreateConnection();
+            
+            // First get the total count
+            string countSql = @"
+                SELECT COUNT(*)
+                FROM entries e
+                JOIN feeds f ON e.feed_id = f.id
+                LEFT JOIN categories c ON f.category_id = c.id
+                WHERE e.filtered = 1";
+            
+            TotalFilteredEntries = connection.QuerySingle<int>(countSql);
+            
+            // Then get the paginated results
+            int offset = (CurrentPage - 1) * PageSize;
             string sql = @"
                 SELECT e.*, f.name as feed_name, f.url as feed_url, c.color as feed_color,
                        CASE 
@@ -271,12 +324,42 @@
                 JOIN feeds f ON e.feed_id = f.id
                 LEFT JOIN categories c ON f.category_id = c.id
                 WHERE e.filtered = 1
-                ORDER BY e.published DESC";
+                ORDER BY e.published DESC
+                LIMIT @PageSize OFFSET @Offset";
             
-            FilteredEntries = connection.Query<Entry>(sql).ToList();
+            PaginatedFilteredEntries = connection.Query<Entry>(sql, new { PageSize, Offset = offset }).ToList();
         }
         catch (Exception ex) {
             Console.WriteLine($"ERROR loading filtered entries: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
+    private void GoToPage(int page) {
+        if (page >= 1 && page <= TotalPages) {
+            CurrentPage = page;
+            LoadFilteredEntries();
+            StateHasChanged();
+        }
+    }
+
+    private void NextPage() {
+        if (CurrentPage < TotalPages) {
+            GoToPage(CurrentPage + 1);
+        }
+    }
+
+    private void PreviousPage() {
+        if (CurrentPage > 1) {
+            GoToPage(CurrentPage - 1);
+        }
+    }
+
+    private void HandlePageSizeChange(ChangeEventArgs e) {
+        if (int.TryParse(e.Value?.ToString(), out int newPageSize)) {
+            PageSize = newPageSize;
+            CurrentPage = 1; // Reset to first page when changing page size
+            LoadFilteredEntries();
+            StateHasChanged();
         }
     }
 
@@ -533,4 +616,88 @@
             Console.WriteLine($"ERROR: {ex.Message}\n{ex.StackTrace}");
         }
     }
-} 
+}
+
+<style>
+    .filtered-entries-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .pagination {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .pagination-bottom {
+        margin-top: 1rem;
+        justify-content: center;
+    }
+
+    .btn-page {
+        background: var(--dark-secondary);
+        color: var(--dark-text);
+        border: 1px solid var(--dark-border);
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-page:hover:not(:disabled) {
+        background: var(--dark-accent);
+        color: white;
+    }
+
+    .btn-page:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .page-info {
+        color: var(--dark-secondary-text);
+        font-size: var(--app-font-size);
+        white-space: nowrap;
+    }
+
+    .page-size-selector {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .page-size-selector label {
+        color: var(--dark-secondary-text);
+        font-size: var(--app-font-size);
+        white-space: nowrap;
+    }
+
+    .page-size-selector select {
+        background: var(--dark-secondary);
+        color: var(--dark-text);
+        border: 1px solid var(--dark-border);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: var(--app-font-size);
+    }
+
+    @@media (max-width: 768px) {
+        .filtered-entries-header {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .pagination {
+            justify-content: center;
+        }
+
+        .page-size-selector {
+            justify-content: center;
+        }
+    }
+</style> 

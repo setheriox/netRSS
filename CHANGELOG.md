@@ -1,5 +1,25 @@
 # netRSS Changelog
 
+## Version 1.3.0 - 2025-06-17
+
+### Added
+- Comprehensive FeedBurner URL support and detection
+- Automatic FeedBurner URL resolution to actual feed URLs
+- Robust XML content cleaning to handle malformed DOCTYPE declarations
+- Enhanced feed validation with FeedBurner-specific handling
+
+### Fixed
+- FeedBurner feeds now work properly in both manual validation and background refresh
+- Resolved "doctype is an unexpected token" errors from malformed XML
+- Fixed hanging during feed save operations
+- Eliminated double validation calls during feed save process
+
+### Improved
+- Background service now properly handles FeedBurner redirects
+- More tolerant XML parsing for various feed providers
+- Better error handling and logging for feed processing issues
+- Enhanced compatibility with legacy feed formats
+
 ## Version 1.2.0 - 2025-05-10
 
 ### Added

@@ -11,6 +11,7 @@ services:
       - ASPNETCORE_URLS=http://+:15001
     volumes:
       - ./database:/app/app/Data
+      - ./CHANGELOG.md:/app/CHANGELOG.md
       - keys-volume:/root/.aspnet/DataProtection-Keys
     restart: always
 
