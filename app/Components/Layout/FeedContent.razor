@@ -574,17 +574,17 @@
                 <span style="@(string.IsNullOrEmpty(FilterColor) ? "" : $"color: {FilterColor}")">
                     @FilterTitle (@TotalEntries)
                 </span>
-                @if (TotalPages > 1) {
-                    <div class="pagination">
-                        <button class="btn-page" @onclick="PreviousPage" disabled="@(CurrentPage == 1)">
-                            ← Previous
-                        </button>
-                        <span class="page-info">Page @CurrentPage of @TotalPages</span>
-                        <button class="btn-page" @onclick="NextPage" disabled="@(CurrentPage == TotalPages)">
-                            Next →
-                        </button>
-                    </div>
-                }
+            @if (TotalPages > 1) {
+                <div class="pagination">
+                    <button class="btn-page" @onclick="PreviousPage" disabled="@(CurrentPage == 1)">
+                        ← Previous
+                    </button>
+                    <span class="page-info">Page @CurrentPage of @TotalPages</span>
+                    <button class="btn-page" @onclick="NextPage" disabled="@(CurrentPage == TotalPages)">
+                        Next →
+                    </button>
+                </div>
+            }
                 <div class="page-size-selector">
                     <label for="pageSize">Items per page:</label>
                     <select id="pageSize" @bind="PageSize" @bind:event="onchange">

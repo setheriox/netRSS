@@ -188,13 +188,6 @@
                 return;
             }
             
-            if (doc == null)
-            {
-                importResult = "Error: Invalid OPML document";
-                importSuccess = false;
-                return;
-            }
-            
             using var connection = DbConnectionFactory.CreateConnection();
             connection.Open();
             
@@ -220,17 +213,17 @@
                 
                 foreach (XmlNode categoryOutline in topLevelOutlines)
                 {
-                    if (categoryOutline?.Name != "outline") continue;
+                    if (categoryOutline.Name != "outline") continue;
                     
                     // Check if this is a category (parent outline) or a direct feed
-                    bool isCategory = categoryOutline?.HasChildNodes == true && 
-                                     categoryOutline?.ChildNodes?.Cast<XmlNode>().Any(n => n?.Name == "outline") == true;
+                    bool isCategory = categoryOutline.HasChildNodes && 
+                                     categoryOutline.ChildNodes.Cast<XmlNode>().Any(n => n.Name == "outline");
                     
                     if (isCategory)
                     {
                         // Process as category
-                        string categoryName = categoryOutline?.Attributes?["text"]?.Value ?? 
-                                            categoryOutline?.Attributes?["title"]?.Value ?? 
+                        string categoryName = categoryOutline.Attributes?["text"]?.Value ?? 
+                                            categoryOutline.Attributes?["title"]?.Value ?? 
                                             "Imported Category";
                         
                         // Find or create this category
@@ -253,9 +246,9 @@
                         // Process feeds in this category
                         int categoryFeedCount = 0;
                         int categorySkippedCount = 0;
-                        foreach (XmlNode feedOutline in categoryOutline?.ChildNodes ?? Enumerable.Empty<XmlNode>())
+                        foreach (XmlNode feedOutline in categoryOutline.ChildNodes)
                         {
-                            if (feedOutline?.Name != "outline") continue;
+                            if (feedOutline.Name != "outline") continue;
                             
                             if (await ProcessFeedOutline(feedOutline, categoryId.Value, connection))
                             {
