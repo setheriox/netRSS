@@ -537,9 +537,9 @@
         }
 
         var timer = new System.Timers.Timer(5000); // 5 seconds
-        timer.Elapsed += async (sender, e) =>
+        timer.Elapsed += (sender, e) =>
         {
-            await InvokeAsync(() =>
+            InvokeAsync(() =>
             {
                 // Double check that this entry isn't expanded before removing it
                 if (ExpandedEntryId != entry.id)
@@ -557,7 +557,7 @@
         AutoHideTimers[entry.id] = timer;
     }
 
-    public void Dispose()
+    void IDisposable.Dispose()
     {
         foreach (var timer in AutoHideTimers.Values)
         {

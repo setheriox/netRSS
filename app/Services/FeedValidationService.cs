@@ -22,7 +22,7 @@ public class FeedValidationService
         _dbConnectionFactory = dbConnectionFactory;
     }
     
-    public async Task<(bool isValid, string errorMessage)> ValidateFeed(string feedUrl, int timeoutSeconds = 10)
+    public async Task<(bool isValid, string errorMessage)> ValidateFeed(string feedUrl, int timeoutSeconds = 30)
     {
         try
         {
@@ -34,7 +34,20 @@ public class FeedValidationService
             httpClient.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
             httpClient.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.5");
             
-            var response = await httpClient.GetAsync(feedUrl);
+            // Follow redirects
+            var response = await httpClient.GetAsync(feedUrl, HttpCompletionOption.ResponseHeadersRead);
+            
+            // Handle redirects manually to get the final URL
+            if (response.StatusCode == System.Net.HttpStatusCode.Found || 
+                response.StatusCode == System.Net.HttpStatusCode.Moved || 
+                response.StatusCode == System.Net.HttpStatusCode.MovedPermanently)
+            {
+                var redirectUrl = response.Headers.Location;
+                if (redirectUrl != null)
+                {
+                    response = await httpClient.GetAsync(redirectUrl);
+                }
+            }
             
             // Check for status code
             if (!response.IsSuccessStatusCode)
@@ -77,6 +90,27 @@ public class FeedValidationService
                     if (isRdf)
                     {
                         return (true, string.Empty);
+                    }
+                    
+                    // Check if this might be an HTML page with a feed link
+                    if (content.Contains("<html", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Look for common feed link patterns
+                        var feedLinkPatterns = new[]
+                        {
+                            "application/rss+xml",
+                            "application/atom+xml",
+                            "application/xml",
+                            "text/xml"
+                        };
+                        
+                        foreach (var pattern in feedLinkPatterns)
+                        {
+                            if (content.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return (false, "This appears to be an HTML page with a feed link. Please use the feed URL directly.");
+                            }
+                        }
                     }
                     
                     return (false, "Not a valid RSS, Atom, or RDF feed");

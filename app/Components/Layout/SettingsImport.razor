@@ -164,12 +164,29 @@
                 return;
             }
             
-            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024); // 1MB max
+            // Increase max file size to 10MB
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
             using var reader = new StreamReader(stream);
             var opmlContent = await reader.ReadToEndAsync();
             
+            if (string.IsNullOrWhiteSpace(opmlContent))
+            {
+                importResult = "The OPML file is empty.";
+                importSuccess = false;
+                return;
+            }
+            
             var doc = new XmlDocument();
-            doc.LoadXml(opmlContent);
+            try
+            {
+                doc.LoadXml(opmlContent);
+            }
+            catch (XmlException ex)
+            {
+                importResult = $"Invalid OPML file format: {ex.Message}";
+                importSuccess = false;
+                return;
+            }
             
             using var connection = DbConnectionFactory.CreateConnection();
             connection.Open();
@@ -188,6 +205,7 @@
             // Process the OPML structure - look for body and outline elements
             var body = doc.GetElementsByTagName("body");
             int totalImported = 0;
+            int totalSkipped = 0;
             
             if (body.Count > 0 && body[0] != null)
             {
@@ -227,6 +245,7 @@
                         
                         // Process feeds in this category
                         int categoryFeedCount = 0;
+                        int categorySkippedCount = 0;
                         foreach (XmlNode feedOutline in categoryOutline.ChildNodes)
                         {
                             if (feedOutline.Name != "outline") continue;
@@ -236,11 +255,20 @@
                                 categoryFeedCount++;
                                 totalImported++;
                             }
+                            else
+                            {
+                                categorySkippedCount++;
+                                totalSkipped++;
+                            }
                         }
                         
                         if (categoryFeedCount > 0)
                         {
                             importResult = $"Imported {categoryFeedCount} feeds into category '{categoryName}'";
+                            if (categorySkippedCount > 0)
+                            {
+                                importResult += $" ({categorySkippedCount} feeds skipped)";
+                            }
                         }
                     }
                     else 
@@ -249,6 +277,10 @@
                         if (await ProcessFeedOutline(categoryOutline, uncategorizedId.Value, connection))
                         {
                             totalImported++;
+                        }
+                        else
+                        {
+                            totalSkipped++;
                         }
                     }
                 }
@@ -265,6 +297,10 @@
                         {
                             totalImported++;
                         }
+                        else
+                        {
+                            totalSkipped++;
+                        }
                     }
                 }
             }
@@ -272,6 +308,10 @@
             if (totalImported > 0)
             {
                 importResult = $"Successfully imported {totalImported} feeds from OPML";
+                if (totalSkipped > 0)
+                {
+                    importResult += $" ({totalSkipped} feeds skipped)";
+                }
                 if (importedCategories.Count > 0)
                 {
                     importResult += $" into {importedCategories.Count} categories";
@@ -291,12 +331,20 @@
             else
             {
                 importResult = "No feeds found in the OPML file or all feeds already exist in the database.";
+                if (totalSkipped > 0)
+                {
+                    importResult += $" ({totalSkipped} feeds were skipped)";
+                }
                 importSuccess = false;
             }
         }
         catch (Exception ex)
         {
             importResult = $"Error importing OPML: {ex.Message}";
+            if (ex.InnerException != null)
+            {
+                importResult += $" ({ex.InnerException.Message})";
+            }
             importSuccess = false;
         }
         finally
