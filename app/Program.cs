@@ -81,7 +81,7 @@ void EnsureDatabaseExists(string dbPath)
     dbConnection.Open();
 
     // Read the SQL schema from the rss.sql file
-    string sqlFilePath = Path.Combine(Directory.GetParent(Directory.GetCurrentDirectory())!.FullName, "database", "rss.sql");
+    string sqlFilePath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.sql");
     
     if (!File.Exists(sqlFilePath))
     {
