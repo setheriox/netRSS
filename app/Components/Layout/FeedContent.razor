@@ -13,6 +13,8 @@
 @implements IDisposable
 @rendermode InteractiveServer
 
+@inject netRSS.Services.DatabasePathProvider DbPathProvider
+
 @code {
     [Parameter]
     public EventCallback<Feed> OnFeedSelected { get; set; } 
@@ -200,7 +202,7 @@
     }
 
     private void LoadEntries() {
-        string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+        string dbPath = @DbPathProvider.Path;
         string connectionString = $"Data Source={dbPath}";
         try {
             using (var connection = new SqliteConnection(connectionString)) {
@@ -308,7 +310,7 @@
     
     private void ToggleRead(Entry entry) {
         try {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString)) {
                 connection.Open();
@@ -333,7 +335,7 @@
 
     private void ToggleStarred(Entry entry) {
         try {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString)) {
                 connection.Open();
@@ -399,7 +401,7 @@
 
     private void MarkEntryAsRead(Entry entry) {
         try {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString)) {
                 connection.Open();
@@ -422,7 +424,7 @@
 
     private void MarkEntryFiltered(Entry entry) {
         try {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString)) {
                 connection.Open();

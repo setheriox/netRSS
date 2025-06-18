@@ -9,6 +9,8 @@
 @implements IDisposable
 @rendermode InteractiveServer
 
+@inject netRSS.Services.DatabasePathProvider DbPathProvider
+
 @code {
     [Parameter]
     public EventCallback<Category> OnCategorySelected { get; set; }
@@ -68,7 +70,7 @@
         
         try
         {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString))
             {
@@ -112,7 +114,7 @@
         
         try
         {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString))
             {
@@ -186,7 +188,7 @@
         
         try
         {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString))
             {
@@ -227,7 +229,7 @@
         
         try
         {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString))
             {
@@ -263,7 +265,7 @@
     {
         try
         {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString))
             {
@@ -309,7 +311,7 @@
     
     private void LoadCategoriesAndFeeds()
     {
-        string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+        string dbPath = DbPathProvider.Path;
         string connectionString = $"Data Source={dbPath}";
 
         using (var connection = new SqliteConnection(connectionString))

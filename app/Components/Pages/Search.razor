@@ -8,6 +8,8 @@
 @using System.Text.RegularExpressions
 @rendermode InteractiveServer
 
+@inject netRSS.Services.DatabasePathProvider DbPathProvider
+
 <PageTitle>Search Results</PageTitle>
 
 <div class="search-page">
@@ -146,7 +148,7 @@
         
         try
         {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             
             Console.WriteLine($"Search.razor PerformSearch - Using database: {dbPath}");
@@ -242,7 +244,7 @@
     {
         try
         {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString))
             {
@@ -265,7 +267,7 @@
     {
         try
         {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString))
             {

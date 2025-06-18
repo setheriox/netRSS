@@ -13,6 +13,8 @@
 @inject IHttpClientFactory HttpClientFactory
 @rendermode InteractiveServer
 
+@inject netRSS.Services.DatabasePathProvider DbPathProvider
+
 <div class="settings-feeds-container">
     <div class="settings-feeds-header">
         <h3>Feeds</h3>
@@ -808,7 +810,7 @@
         
         try
         {
-            string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+            string dbPath = DbPathProvider.Path;
             string connectionString = $"Data Source={dbPath}";
             using (var connection = new SqliteConnection(connectionString))
             {
