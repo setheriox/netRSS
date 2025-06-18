@@ -2,6 +2,13 @@ using Microsoft.Data.Sqlite;
 using netRSS.Components;
 using Dapper;
 
+const string databaseName = @"rss.db";
+const string schemaScriptName = @"rss.sql";
+
+string DataPath() => Path.Combine(Directory.GetParent(Directory.GetCurrentDirectory())!.FullName, "database");
+string DatabasePath() => Path.Combine(DataPath(), databaseName);
+string SchemaScriptPath() => Path.Combine(DataPath(), schemaScriptName);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -13,8 +20,9 @@ builder.Services.AddRazorComponents()
 builder.Services.AddHttpClient();
 
 // Configure SQLite
-string dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.db");
+string dbPath = DatabasePath();
 builder.Services.AddSingleton<SqliteConnection>(sp => new SqliteConnection($"Data Source={dbPath}"));
+builder.Services.AddSingleton(new netRSS.Services.DatabasePathProvider(dbPath));
 
 // Register DbConnectionFactory to create db connections
 builder.Services.AddSingleton<IDbConnectionFactory>(sp => 
@@ -62,6 +70,7 @@ InsertTestData(dbPath);
 app.Run();
 
 // Helper methods
+
 void EnsureDatabaseExists(string dbPath)
 {
     // Ensure the Data directory exists
@@ -81,7 +90,7 @@ void EnsureDatabaseExists(string dbPath)
     dbConnection.Open();
 
     // Read the SQL schema from the rss.sql file
-    string sqlFilePath = Path.Combine(Directory.GetCurrentDirectory(), "Data", "rss.sql");
+    string sqlFilePath = SchemaScriptPath();
     
     if (!File.Exists(sqlFilePath))
     {
